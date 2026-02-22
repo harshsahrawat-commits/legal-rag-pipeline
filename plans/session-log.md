@@ -166,3 +166,50 @@
 3. Complete Subtask 4 (PDF downloader + India Code HTML parser)
 4. Complete Subtask 5 (Docling PDF parser)
 5. Complete Subtask 6 (Pipeline + CLI + integration tests)
+
+---
+
+## Session: 2026-02-22 (fourth session)
+**Phase:** Phase 2 — Document Parsing (Subtasks 2–3)
+
+**What was built:**
+
+1. **Subtask 2 tests — 40 tests** across 3 new test files:
+   - `tests/parsing/test_base_parser.py` (8 tests) — ABC enforcement, concrete subclass, can_parse routing
+   - `tests/parsing/test_router.py` (10 tests) — Registration, priority selection, fallback, UnsupportedFormatError
+   - `tests/parsing/test_validation.py` (22 tests) — Text completeness (6), section sequence (6), table integrity (4), OCR confidence (3), aggregate report (3)
+
+2. **Subtask 3 — Indian Kanoon HTML parser + 29 tests:**
+   - `src/parsing/parsers/_html_indian_kanoon.py` (~290 lines) — Full parser with:
+     - Judgment parsing: HEADER → FACTS → ISSUES → REASONING → HOLDING → ORDER sections via bold heading marker matching
+     - Statute parsing: PREAMBLE → CHAPTER → SECTION hierarchy with CLAUSE/PROVISO/EXPLANATION children
+     - Metadata extraction from `div.doc_title`, `div.doc_bench`, `div.doc_citations`
+     - Auto-detection of JUDGMENT vs STATUTE when `document_type` is None
+     - Edge cases: empty file, missing `div.judgments`, no structural markers
+   - `tests/parsing/test_html_indian_kanoon.py` (29 tests) — 8 test classes: can_parse (3), parser_type (1), judgment parsing (7), statute parsing (7), metadata (3), type detection (2), edge cases (4), output contract (2)
+   - `src/parsing/parsers/__init__.py` — exports `IndianKanoonHtmlParser`
+
+**Results:** 231 tests all passing (125 Phase 1 + 106 Phase 2), lint clean
+
+**What broke:**
+1. "HOLDING" bold heading not matched — `_HOLDING_MARKERS` had phrases like "for the foregoing reasons" but not the word "holding" itself. The fixture HTML uses `<b>HOLDING</b>`. Fix: added `"holding"` to the markers list.
+2. Statute auto-detection failed — `_SECTION_RE` has `^` anchor which only matches at string start, not mid-text. `_detect_document_type` was using `_SECTION_RE.search(text)` on the full `div.judgments` text where "Section 1" appears mid-string. Fix: used boundary-based patterns without `^` anchors for the detection method.
+3. Ruff RUF100 — `# noqa: TC001` on parser imports was unused because those imports are used at runtime (constructing objects), not just type hints. Ruff correctly identifies them as runtime imports.
+
+**Decisions made:**
+1. **BeautifulSoup with html.parser backend** — Already used in Phase 1 scrapers. CSS selectors map directly to IK HTML structure. No new dependency.
+2. **Judgment sections are flat, statutes are hierarchical** — Judgment sections (FACTS, ISSUES, etc.) are siblings. Statute sections form a tree (CHAPTER → SECTION → CLAUSE/PROVISO).
+3. **Bold heading = structural marker only when it starts the paragraph** — Avoids false positives from bold text inline (e.g., emphasized case names).
+4. **ORDER exact match only** — "order" is too common a word for substring matching. Only `<b>ORDER</b>` (exact) triggers ORDER section.
+5. **Placeholder QualityReport in parser output** — Parser returns `QualityReport(overall_score=0.0, passed=False)`. Real validation done by QualityValidator in the pipeline.
+6. **Separate detection patterns from parsing patterns** — `_SECTION_RE` with `^` anchor is correct for line-by-line parsing. Detection uses simpler `\bSection\s+\d+` without anchor.
+
+**Open questions:**
+- Indian Kanoon API: still pending approval
+- Should `_REASONING_MARKERS` include "analysis" alone? Currently requires "analysis and reasoning" (substring match). Real IK pages may vary.
+
+**Next steps:**
+1. Complete Subtask 4 (PDF downloader + India Code HTML parser)
+2. Complete Subtask 5 (Docling PDF parser)
+3. Complete Subtask 6 (Pipeline + CLI + integration tests)
+4. Commit all Phase 2 work when phase is complete (or commit incrementally)

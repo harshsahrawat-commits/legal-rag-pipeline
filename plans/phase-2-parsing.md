@@ -167,14 +167,14 @@ HOLDING_MARKERS = ["we hold that", "for the foregoing reasons", "appeal is"]
 - YAML config loader (mirrors `src/acquisition/_config.py` pattern)
 - Tests: model serialization, config loading, exception hierarchy
 
-### Subtask 2: Base Parser + Router + Validation (~20 tests) -- IN PROGRESS (code written, tests pending)
+### Subtask 2: Base Parser + Router + Validation (~20 tests) -- DONE (40 tests)
 **Files:** `parsers/_base.py`, `_router.py`, `_validation.py`
 - `BaseParser` ABC: `parse()`, `can_parse()`, `parser_type` property
 - `ParserRouter`: selects parser by source_type + content_format, handles ImportError for Docling
 - `QualityValidator`: runs 4 checks, produces QualityReport
 - Tests: routing logic, validation thresholds, fallback behavior
 
-### Subtask 3: Indian Kanoon HTML Parser (~20 tests)
+### Subtask 3: Indian Kanoon HTML Parser (~20 tests) -- DONE (29 tests)
 **Files:** `parsers/_html_indian_kanoon.py`
 - Parse `div.judgments` content (judgments) and statute text (statutes)
 - Detect structural sections using marker patterns
