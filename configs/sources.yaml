@@ -1,0 +1,50 @@
+settings:
+  output_dir: data/raw
+  state_dir: data/state
+  concurrency: 2
+  user_agent: "LegalRAGBot/0.1 (research; +https://github.com/legal-rag)"
+
+sources:
+  - name: Indian Kanoon
+    source_type: indian_kanoon
+    base_url: https://indiankanoon.org
+    enabled: true
+    rate_limit_requests_per_second: 0.5
+    request_timeout_seconds: 30
+    max_retries: 3
+    scrape_config:
+      seed_queries:
+        - "Indian Penal Code"
+        - "Bharatiya Nyaya Sanhita"
+        - "Code of Criminal Procedure"
+        - "Bharatiya Nagarik Suraksha Sanhita"
+        - "Indian Evidence Act"
+        - "Bharatiya Sakshya Adhiniyam"
+        - "Constitution of India"
+        - "Income Tax Act"
+        - "Companies Act 2013"
+        - "Negotiable Instruments Act"
+      max_pages_per_query: 5
+      max_documents: 100
+
+  - name: India Code
+    source_type: india_code
+    base_url: https://www.indiacode.nic.in
+    enabled: true
+    rate_limit_requests_per_second: 0.33
+    request_timeout_seconds: 60
+    max_retries: 3
+    scrape_config:
+      seed_act_ids:
+        - "45_of_1860"    # Indian Penal Code
+        - "45_of_2023"    # Bharatiya Nyaya Sanhita
+        - "2_of_1974"     # CrPC
+        - "46_of_2023"    # BNSS
+        - "1_of_1872"     # Indian Evidence Act
+        - "47_of_2023"    # Bharatiya Sakshya Adhiniyam
+        - "43_of_1961"    # Income Tax Act
+        - "18_of_2013"    # Companies Act
+        - "26_of_1881"    # Negotiable Instruments Act
+        - "5_of_1908"     # Limitation Act
+      max_pages_per_query: 3
+      max_documents: 50

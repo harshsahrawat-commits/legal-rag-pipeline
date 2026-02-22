@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Environment
+.env
+.env.*
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (keep sample/, ignore production data)
+data/raw/
+data/state/
+data/parsed/
+data/chunks/
+data/embeddings/
+!data/sample/
+!data/eval/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# API keys / tokens
+*.token
+credentials.*
