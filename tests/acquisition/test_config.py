@@ -32,7 +32,8 @@ class TestLoadSourceRegistry:
         ic = next(s for s in registry.sources if s.source_type == SourceType.INDIA_CODE)
         assert ic.name == "India Code"
         assert ic.rate_limit_requests_per_second == 0.33
-        assert len(ic.scrape_config.seed_act_ids) > 0
+        assert ic.scrape_config.max_pages_per_query == 9
+        assert ic.scrape_config.max_documents == 50
 
     def test_missing_file_raises(self):
         with pytest.raises(ConfigurationError, match="not found"):

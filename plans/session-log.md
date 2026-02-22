@@ -50,3 +50,51 @@
 2. Once approved: refactor `IndianKanoonScraper` to use API (token auth, JSON responses, citation data, structural analysis)
 3. Initialize git repo and make first commit
 4. Begin Phase 2 (Parsing) or wait for API refactor — user's choice
+
+---
+
+## Session: 2026-02-22 (second session)
+**Phase:** Phase 1 — Agentic Acquisition (India Code scraper rewrite)
+
+**What was built:**
+1. **India Code live site probe** — Used Playwright to inspect the real indiacode.nic.in website and discovered the existing scraper was completely broken:
+   - URL scheme wrong (used `45_of_1860` strings, real handles are opaque numeric IDs like `1999`)
+   - CSS selectors wrong (`div.actTitle` etc. don't exist)
+   - Discovery model wrong (static seed list vs paginated browse listing)
+   - Content is JS-rendered but browse listing is server-rendered HTML table
+
+2. **India Code scraper full rewrite** based on real site structure:
+   - Discovery via DSpace browse listing pagination (server-rendered HTML table)
+   - Save detail page HTML as raw content (not PDF — avoids binary corruption through text encoding roundtrip)
+   - PDF URL stored in `PreliminaryMetadata.download_url` for Phase 2 to download directly
+   - Doc IDs prefixed with `ic_` to avoid collision with Indian Kanoon IDs
+
+3. **Files changed:**
+   - `src/acquisition/_models.py` — Added `download_url: str | None` field to `PreliminaryMetadata`
+   - `src/acquisition/scrapers/_india_code.py` — Full rewrite (browse listing pagination, detail page scraping, PDF URL extraction)
+   - `tests/acquisition/conftest.py` — Replaced India Code fixtures with real HTML structure from live site
+   - `tests/acquisition/test_india_code_scraper.py` — Full rewrite (30 tests)
+   - `tests/acquisition/test_pipeline.py` — Updated integration test for new scraper interface
+   - `tests/acquisition/test_config.py` — Updated config assertion (removed `seed_act_ids`)
+   - `configs/sources.yaml` — Removed broken `seed_act_ids`, updated config for browse-listing discovery
+
+4. **Results:** 125 tests all passing, lint clean, format clean
+
+**What broke:**
+- Nothing broke during this session — the rewrite was clean. The existing scraper was already broken against the live site (just hadn't been tested against it).
+
+**Decisions made:**
+1. **Save HTML detail page during acquisition, not PDF** — PDF is binary and would be corrupted through text encoding roundtrip in the existing save pipeline. Added `download_url` to metadata so Phase 2 can download PDFs directly.
+2. **Browse listing pagination for discovery** — Not search, not static seed lists. The DSpace browse listing at `/sp/browse?type=title` is server-rendered and paginable.
+3. **Opaque numeric IDs prefixed with `ic_`** — Real India Code handles are numeric (e.g., `1999`). Prefix avoids collision with Indian Kanoon doc IDs.
+
+**Open questions / action items:**
+- **MUST TEST LIVE**: India Code scraper needs live smoke test against indiacode.nic.in with `max_documents: 2`. User stopped the live test during this session.
+- **URL quirk**: The browse listing URL may require `etal=-1&null=` query params or the site returns HTTP errors. Scraper currently doesn't include these — needs live testing to confirm if plain HTTP (without Playwright) works.
+- **Indian Kanoon API**: Still pending non-commercial approval.
+
+**Next steps:**
+1. Live smoke test India Code scraper against real site (max 2 docs)
+2. If browse listing needs Playwright or special params, adjust scraper accordingly
+3. Check for Indian Kanoon API approval; refactor IK scraper once approved
+4. Begin Phase 2 (Parsing)

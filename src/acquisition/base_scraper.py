@@ -45,11 +45,14 @@ class BaseScraper(abc.ABC):
         source_def: SourceDefinition,
         state_store: CrawlStateStore,
         output_dir: Path,
+        *,
+        user_agent: str = "LegalRAGBot/0.1",
     ) -> None:
         self._source_def = source_def
         self._state_store = state_store
         self._output_dir = output_dir / source_def.source_type.value
         self._output_dir.mkdir(parents=True, exist_ok=True)
+        self._user_agent = user_agent
 
     @property
     def source_type(self) -> SourceType:
@@ -152,6 +155,7 @@ class BaseScraper(abc.ABC):
 
         async with HttpClient(
             rate_limiter=rate_limiter,
+            user_agent=self._user_agent,
             timeout_seconds=self._source_def.request_timeout_seconds,
             max_retries=self._source_def.max_retries,
         ) as client:

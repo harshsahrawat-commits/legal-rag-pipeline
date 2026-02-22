@@ -154,6 +154,7 @@ class AcquisitionPipeline:
                 source_def,
                 self._state_store,
                 self._settings.output_dir,
+                user_agent=self._settings.user_agent,
             )
 
             try:

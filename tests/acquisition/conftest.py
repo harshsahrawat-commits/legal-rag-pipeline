@@ -56,44 +56,103 @@ SAMPLE_INDIAN_KANOON_SEARCH = """
 </html>
 """
 
-SAMPLE_INDIA_CODE_ACT = """
+SAMPLE_INDIA_CODE_BROWSE = """
 <html>
-<head><title>The Indian Penal Code, 1860</title></head>
+<head><title>India Code: Browsing DSpace</title></head>
 <body>
-<div class="actTitle">THE INDIAN PENAL CODE, 1860</div>
-<div class="actNumber">Act No. 45 of 1860</div>
-<div class="enactmentDate">[6th October, 1860]</div>
-<div class="sections">
-<div class="section">
-<h3>Section 1. Title and extent of operation of the Code.</h3>
-<p>This Act shall be called the Indian Penal Code, and shall extend to the whole of India
-except the State of Jammu and Kashmir.</p>
-</div>
-<div class="section">
-<h3>Section 2. Punishment of offences committed within India.</h3>
-<p>Every person shall be liable to punishment under this Code and not otherwise for every act
-or omission contrary to the provisions thereof.</p>
-</div>
+<div id="content">
+<h4>Browsing "Central Act Legislation" by Short Title</h4>
+<div>Showing items 1 to 3 of 848</div>
+<table class="table" summary="This table browses all dspace content">
+<thead>
+<tr>
+<th>Enactment Date</th>
+<th>Act Number</th>
+<th>Short Title</th>
+<th>View</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>6-Oct-1860</td>
+<td><em>45</em></td>
+<td><strong>The Indian Penal Code, 1860</strong></td>
+<td><a href="/handle/123456789/1505?view_type=browse">View...</a></td>
+</tr>
+<tr>
+<td>9-Jun-2000</td>
+<td><em>21</em></td>
+<td><strong>The Information Technology Act, 2000</strong></td>
+<td><a href="/handle/123456789/1999?view_type=browse">View...</a></td>
+</tr>
+<tr>
+<td>25-Dec-2023</td>
+<td><em>45</em></td>
+<td><strong>The Bharatiya Nyaya Sanhita, 2023</strong></td>
+<td><a href="/handle/123456789/22501?view_type=browse">View...</a></td>
+</tr>
+</tbody>
+</table>
+<div>Showing items 1 to 3 of 848</div>
 </div>
 </body>
 </html>
 """
 
-SAMPLE_INDIA_CODE_LISTING = """
+SAMPLE_INDIA_CODE_BROWSE_EMPTY = """
 <html>
-<head><title>India Code - Act Listing</title></head>
+<head><title>India Code: Browsing DSpace</title></head>
 <body>
-<div class="actListing">
-<table>
+<div id="content">
+<h4>Browsing "Central Act Legislation" by Short Title</h4>
+<table class="table" summary="This table browses all dspace content">
+<thead>
 <tr>
-<td><a href="/handle/123456789/1362">The Indian Penal Code, 1860</a></td>
-<td>Act No. 45 of 1860</td>
+<th>Enactment Date</th>
+<th>Act Number</th>
+<th>Short Title</th>
+<th>View</th>
 </tr>
-<tr>
-<td><a href="/handle/123456789/2263">The Code of Criminal Procedure, 1973</a></td>
-<td>Act No. 2 of 1974</td>
-</tr>
+</thead>
+<tbody>
+</tbody>
 </table>
+</div>
+</body>
+</html>
+"""
+
+SAMPLE_INDIA_CODE_DETAIL = """
+<html>
+<head><title>India Code: Information Technology Act, 2000</title></head>
+<body>
+<div id="content">
+<div class="item-summary-view-metadata">
+<a href="/bitstream/123456789/1999/1/A2000-21%20%281%29.pdf">
+<p>The Information Technology Act, 2000<img src="/image/pdf-icon.png"/></p>
+</a>
+<a href="/bitstream/123456789/1999/2/H2000-21.pdf">
+<p>सूचना प्रौद्योगिकी अधिनियम, 2000<img src="/image/pdf-icon.png"/></p>
+</a>
+</div>
+<ul class="nav nav-tabs">
+<li><a href="#tb1">Sections</a></li>
+<li><a href="#tb10">Schedule</a></li>
+<li><a href="#tb2">Actdetails</a></li>
+</ul>
+</div>
+</body>
+</html>
+"""
+
+SAMPLE_INDIA_CODE_DETAIL_NO_PDF = """
+<html>
+<head><title>India Code: Some Act</title></head>
+<body>
+<div id="content">
+<div class="item-summary-view-metadata">
+<p>No PDF available for this act.</p>
+</div>
 </div>
 </body>
 </html>
@@ -130,10 +189,20 @@ def sample_statute_html() -> str:
 
 
 @pytest.fixture()
-def sample_india_code_act_html() -> str:
-    return SAMPLE_INDIA_CODE_ACT
+def sample_india_code_browse_html() -> str:
+    return SAMPLE_INDIA_CODE_BROWSE
 
 
 @pytest.fixture()
-def sample_india_code_listing_html() -> str:
-    return SAMPLE_INDIA_CODE_LISTING
+def sample_india_code_browse_empty_html() -> str:
+    return SAMPLE_INDIA_CODE_BROWSE_EMPTY
+
+
+@pytest.fixture()
+def sample_india_code_detail_html() -> str:
+    return SAMPLE_INDIA_CODE_DETAIL
+
+
+@pytest.fixture()
+def sample_india_code_detail_no_pdf_html() -> str:
+    return SAMPLE_INDIA_CODE_DETAIL_NO_PDF

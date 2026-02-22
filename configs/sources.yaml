@@ -2,7 +2,7 @@ settings:
   output_dir: data/raw
   state_dir: data/state
   concurrency: 2
-  user_agent: "LegalRAGBot/0.1 (research; +https://github.com/legal-rag)"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 
 sources:
   - name: Indian Kanoon
@@ -35,16 +35,5 @@ sources:
     request_timeout_seconds: 60
     max_retries: 3
     scrape_config:
-      seed_act_ids:
-        - "45_of_1860"    # Indian Penal Code
-        - "45_of_2023"    # Bharatiya Nyaya Sanhita
-        - "2_of_1974"     # CrPC
-        - "46_of_2023"    # BNSS
-        - "1_of_1872"     # Indian Evidence Act
-        - "47_of_2023"    # Bharatiya Sakshya Adhiniyam
-        - "43_of_1961"    # Income Tax Act
-        - "18_of_2013"    # Companies Act
-        - "26_of_1881"    # Negotiable Instruments Act
-        - "5_of_1908"     # Limitation Act
-      max_pages_per_query: 3
+      max_pages_per_query: 9    # 848 acts / 100 per page
       max_documents: 50

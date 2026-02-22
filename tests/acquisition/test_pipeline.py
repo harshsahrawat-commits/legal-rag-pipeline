@@ -56,12 +56,38 @@ DOC_STATUTE_HTML = (
 """
 )
 
-INDIA_CODE_ACT_HTML = (
+INDIA_CODE_BROWSE_HTML = """
+<html><body>
+<table class="table" summary="This table browses all dspace content">
+<thead><tr><th>Enactment Date</th><th>Act Number</th><th>Short Title</th><th>View</th></tr></thead>
+<tbody>
+<tr>
+<td>6-Oct-1860</td><td><em>45</em></td>
+<td><strong>The Indian Penal Code, 1860</strong></td>
+<td><a href="/handle/123456789/1505?view_type=browse">View...</a></td>
+</tr>
+</tbody>
+</table>
+</body></html>
+"""
+
+INDIA_CODE_BROWSE_EMPTY_HTML = """
+<html><body>
+<table class="table" summary="This table browses all dspace content">
+<thead><tr><th>Enactment Date</th><th>Act Number</th><th>Short Title</th><th>View</th></tr></thead>
+<tbody></tbody>
+</table>
+</body></html>
+"""
+
+INDIA_CODE_DETAIL_HTML = (
     """
 <html><body>
-<div class="actTitle">THE INDIAN PENAL CODE, 1860</div>
-<div class="actNumber">Act No. 45 of 1860</div>
-<div class="enactmentDate">[6th October, 1860]</div>
+<div class="item-summary-view-metadata">
+<a href="/bitstream/123456789/1505/1/A1860-45.pdf">
+<p>The Indian Penal Code, 1860</p>
+</a>
+</div>
 <div class="sections"><p>Section 1. Title and extent of operation of the Code.</p>
 """
     + "x" * 500
@@ -101,7 +127,7 @@ def _make_test_registry(tmp_path: Path) -> SourceRegistry:
                 request_timeout_seconds=10,
                 max_retries=1,
                 scrape_config=ScrapeConfig(
-                    seed_act_ids=["45_of_1860"],
+                    max_pages_per_query=1,
                     max_documents=5,
                 ),
             ),
@@ -200,6 +226,8 @@ class TestAcquisitionPipeline:
         assert results == []
 
     async def test_pipeline_multiple_sources(self, tmp_path: Path):
+        import re
+
         registry = _make_test_registry(tmp_path)
         pipeline = AcquisitionPipeline(registry=registry)
 
@@ -212,10 +240,23 @@ class TestAcquisitionPipeline:
             m.get("https://indiankanoon.org/doc/101/", body=DOC_JUDGMENT_HTML)
             m.get("https://indiankanoon.org/doc/102/", body=DOC_STATUTE_HTML)
 
-            # India Code
+            # India Code — browse listing (first page with 1 act, second empty)
             m.get(
-                "https://www.indiacode.nic.in/handle/123456789/45_of_1860",
-                body=INDIA_CODE_ACT_HTML,
+                re.compile(
+                    r"https://www\.indiacode\.nic\.in/handle/123456789/1362/browse\?.*offset=0.*"
+                ),
+                body=INDIA_CODE_BROWSE_HTML,
+            )
+            m.get(
+                re.compile(
+                    r"https://www\.indiacode\.nic\.in/handle/123456789/1362/browse\?.*offset=100.*"
+                ),
+                body=INDIA_CODE_BROWSE_EMPTY_HTML,
+            )
+            # India Code — detail page for the discovered act
+            m.get(
+                re.compile(r"https://www\.indiacode\.nic\.in/handle/123456789/1505\?.*"),
+                body=INDIA_CODE_DETAIL_HTML,
             )
 
             results = await pipeline.run()

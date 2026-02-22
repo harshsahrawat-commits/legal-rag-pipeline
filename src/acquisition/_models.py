@@ -86,7 +86,11 @@ class GlobalAcquisitionSettings(BaseModel):
     output_dir: Path = Path("data/raw")
     state_dir: Path = Path("data/state")
     concurrency: int = 2
-    user_agent: str = "LegalRAGBot/0.1 (research; +https://github.com/legal-rag)"
+    user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/133.0.0.0 Safari/537.36"
+    )
 
 
 class SourceRegistry(BaseModel):
@@ -153,6 +157,7 @@ class PreliminaryMetadata(BaseModel):
     court: str | None = None
     date: str | None = None
     parties: str | None = None
+    download_url: str | None = None
 
 
 class DocumentFlag(BaseModel):
