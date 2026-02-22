@@ -4,7 +4,7 @@ A production-grade ingestion pipeline for Indian legal documents (statutes, judg
 
 ## Stack
 
-- **Language:** Python 3.11+
+- **Language:** Python 3.11+ (dev environment: 3.14)
 - **Parsing:** Docling (IBM, MIT License) + Granite-Docling VLM for scanned PDFs
 - **Chunking:** Custom structure-aware chunkers per document type + semantic fallback
 - **Embeddings:** Fine-tuned BGE-m3 (multilingual) with Late Chunking via Jina
@@ -36,8 +36,10 @@ legal-rag-pipeline/
 ├── data/                  # Sample documents for testing (NOT production data)
 ├── docs/                  # Detailed architecture docs (READ THESE — see below)
 ├── configs/               # YAML configs per environment
+├── Indian_kanoon/         # Indian Kanoon API reference docs (endpoints, ToS, official client)
 ├── .claude/               # Claude Code commands, agents, rules
-└── plans/                 # Implementation plans, tracked per phase
+├── plans/                 # Implementation plans, tracked per phase
+└── pyproject.toml         # Project config (dependencies, ruff, pytest)
 ```
 
 ## Commands
@@ -51,7 +53,7 @@ pytest tests/ -k "unit" -v     # Unit tests only
 pytest tests/ -k "integration" # Integration tests only
 
 # Pipeline operations
-python -m src.acquisition.run --source=indiankanoon --mode=incremental
+python -m src.acquisition.run --source="Indian Kanoon" --mode=incremental
 python -m src.parsing.run --input=data/raw/ --output=data/parsed/
 python -m src.chunking.run --input=data/parsed/ --output=data/chunks/
 python -m src.enrichment.run --stage=contextual_retrieval
