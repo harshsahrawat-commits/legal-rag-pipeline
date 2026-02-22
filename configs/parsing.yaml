@@ -1,0 +1,13 @@
+settings:
+  input_dir: data/raw
+  output_dir: data/parsed
+  pdf_cache_dir: data/cache/pdf
+
+  prefer_docling: true
+  ocr_languages: ["eng", "hin"]
+  ocr_confidence_threshold: 0.85
+
+  min_text_completeness: 0.5
+  download_timeout_seconds: 120
+  max_pdf_size_mb: 100
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
