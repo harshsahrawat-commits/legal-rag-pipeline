@@ -199,7 +199,7 @@ class TestTableIntegrity:
             "t1",
             rows=[["a", "b"], ["c"]],  # only 3 cells
             row_count=2,
-            col_count=2,   # expects 4
+            col_count=2,  # expects 4
         )
         doc = _make_doc(tables=[table])
         validator = QualityValidator(parsing_settings)
@@ -272,7 +272,7 @@ class TestValidateAggregate:
 
     def test_one_failure_flags_report(self, parsing_settings: ParsingSettings):
         doc = _make_doc(
-            raw_text="x" * 100,   # too little text for 10 pages
+            raw_text="x" * 100,  # too little text for 10 pages
             page_count=10,
             sections=[_make_section("1"), _make_section("2")],
         )

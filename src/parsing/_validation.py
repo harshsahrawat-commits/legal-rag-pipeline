@@ -103,7 +103,7 @@ class QualityValidator:
             expected = section_numbers[i - 1] + 1
             actual = section_numbers[i]
             if actual > expected:
-                gaps.append(f"{section_numbers[i-1]}->{actual}")
+                gaps.append(f"{section_numbers[i - 1]}->{actual}")
 
         if not gaps:
             return QualityCheckResult(

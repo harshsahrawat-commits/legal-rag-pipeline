@@ -213,3 +213,60 @@
 2. Complete Subtask 5 (Docling PDF parser)
 3. Complete Subtask 6 (Pipeline + CLI + integration tests)
 4. Commit all Phase 2 work when phase is complete (or commit incrementally)
+
+---
+
+## Session: 2026-02-23 18:15
+**Phase:** Phase 2 — Document Parsing (Subtasks 4–5)
+
+**What was built:**
+
+1. **Subtask 4 — PDF Downloader + India Code HTML Parser (29 tests):**
+   - `src/parsing/_downloader.py` (~130 lines) — `PdfDownloader` class:
+     - Async PDF download via aiohttp with configurable timeout + User-Agent
+     - Cache-based idempotency at `data/cache/pdf/{doc_id}.pdf` (skips if non-empty file exists)
+     - Atomic writes via `tempfile.NamedTemporaryFile` + `Path.replace()`
+     - Size limit enforcement: Content-Length pre-check + streaming byte count check
+     - Raises `PDFDownloadError` on HTTP errors, timeout, network error, size exceeded
+   - `src/parsing/parsers/_html_india_code.py` (~180 lines) — `IndiaCodeHtmlParser`:
+     - Extracts metadata from DSpace detail page: `table.itemDisplayTable` (act number, date, year), `h2` title, `<title>` tag fallback
+     - Year extraction from title text when not in metadata table
+     - Falls back to Phase 1 `PreliminaryMetadata` for missing fields
+     - Returns minimal `ParsedDocument` with `PREAMBLE` section (real content from PDF)
+   - `tests/parsing/test_downloader.py` (11 tests) — cache hit, empty cache, download, dir creation, HTTP 404/500, network error, timeout, size limits (header + streaming), atomic write cleanup
+   - `tests/parsing/test_html_india_code.py` (18 tests) — can_parse (3), parser_type, metadata extraction (7), title fallback, sections (2), output contract (4)
+
+2. **Subtask 5 — Docling PDF Parser (19 tests):**
+   - `src/parsing/parsers/_docling_pdf.py` (~340 lines) — `DoclingPdfParser`:
+     - Lazy Docling import — graceful `ParserNotAvailableError` if not installed
+     - Converts PDF → markdown via `DocumentConverter`, walks markdown to build `ParsedSection` tree
+     - Full Indian statute patterns: PART, CHAPTER, SECTION, SUB_SECTION, CLAUSE, PROVISO, EXPLANATION, SCHEDULE
+     - Generic markdown fallback (heading-based paragraphs) for non-statute docs
+     - Table extraction from Docling objects (DataFrame or raw cell data)
+     - Page count from Docling's page tracking
+   - `tests/parsing/test_docling_pdf.py` (19 tests) — all mocked (no docling dependency needed):
+     - can_parse (3), parser_type, docling unavailable, statute hierarchy (7), generic parsing (2), empty output, output contract (4)
+
+**Results:** 279 tests all passing (125 Phase 1 + 154 Phase 2), lint clean, format clean
+
+**What broke:**
+1. **Windows PermissionError on temp file unlink** — `except BaseException: tmp_path.unlink()` inside a `with NamedTemporaryFile()` block fails on Windows because the file descriptor is still open. Fix: restructured so cleanup happens after the `with` block exits (fd closed by context manager first).
+2. **Patch target for lazy import** — `patch("module.DocumentConverter")` fails when `DocumentConverter` is imported inside a method (not at module level). Fix: mock `_convert_with_docling` directly via `patch.object()` instead of mocking the import.
+3. **Ruff SIM115** — `tempfile.NamedTemporaryFile()` without context manager. Fix: wrap in `with` statement, restructure cleanup flow.
+4. **Ruff RUF015** — `[x for x in list if cond][0]` → `next(x for x in list if cond)` in tests.
+
+**Decisions made:**
+1. **Mock `_convert_with_docling` not `DocumentConverter`** — Since Docling import is lazy (inside method), mocking the static method is cleaner and doesn't require `sys.modules` hacking.
+2. **Cleanup after `with` block, not inside** — On Windows, can't unlink an open file. The pattern is: `try: with tempfile as fd: ... ; rename(); except: unlink(); raise`.
+3. **Generic markdown parser as fallback** — Non-statute PDFs (notifications, circulars) get paragraph-level sections based on markdown headings.
+4. **Table extraction is best-effort** — If Docling table objects don't match expected API, log warning and skip rather than failing the entire parse.
+
+**Open questions:**
+- Indian Kanoon API: still pending approval
+- Docling table extraction API shape may vary by version — current code handles DataFrame and raw cell data, may need adjustment when tested with real Docling output
+- Should the pipeline (Subtask 6) merge IndiaCodeHtmlParser metadata with DoclingPdfParser content for India Code docs? (Yes — this is the planned flow)
+
+**Next steps:**
+1. Complete Subtask 6 (Pipeline + CLI + integration tests) — final subtask of Phase 2
+2. Commit all Phase 2 Subtasks 4-6 work
+3. Update phase plan with completion status

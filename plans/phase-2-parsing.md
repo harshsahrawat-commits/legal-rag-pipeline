@@ -182,19 +182,20 @@ HOLDING_MARKERS = ["we hold that", "for the foregoing reasons", "appeal is"]
 - Tested with synthetic HTML from Phase 1 test fixtures
 - Tests: judgment structure detection, statute section detection, metadata enrichment
 
-### Subtask 4: PDF Downloader + India Code HTML Parser (~15 tests)
+### Subtask 4: PDF Downloader + India Code HTML Parser (~15 tests) -- DONE (29 tests)
 **Files:** `_downloader.py`, `parsers/_html_india_code.py`
-- `PdfDownloader`: download from `download_url` → cache at `data/cache/pdf/{doc_id}.pdf`
-  - Uses aiohttp (reuse Phase 1 pattern), atomic writes, cache-based idempotency
-- `IndiaCodeHtmlParser`: extract metadata from detail page, flag need for PDF parsing
-- Tests: download caching, timeout handling, HTTP errors, metadata extraction
+- `PdfDownloader`: async aiohttp download, cache at `data/cache/pdf/{doc_id}.pdf`, atomic writes, size limits
+- `IndiaCodeHtmlParser`: metadata from DSpace detail page table, title fallback chain, Phase 1 metadata merge
+- Tests: cache hit/miss, download success, HTTP errors (404/500), network error, timeout, size limits (header + streaming), atomic write cleanup, metadata extraction, can_parse, output contract
 
-### Subtask 5: PDF Parser — Docling or Fallback (~15 tests)
-**Files:** `parsers/_docling_pdf.py` (or `_pymupdf_pdf.py` if Docling fails in Subtask 0)
-- Wrap Docling `DocumentConverter` → walk `DoclingDocument` → build ParsedSection tree
-- OR wrap pymupdf4llm + pdfplumber for text + table extraction
-- Structure detection using statute/judgment regex patterns
-- Tests: section hierarchy from PDF, table extraction, OCR confidence, `@pytest.mark.slow`
+### Subtask 5: PDF Parser — Docling (~15 tests) -- DONE (19 tests)
+**Files:** `parsers/_docling_pdf.py`
+- Lazy Docling import, graceful `ParserNotAvailableError` if not installed
+- Converts PDF → markdown via `DocumentConverter`, walks markdown → `ParsedSection` tree
+- Full statute patterns: PART, CHAPTER, SECTION, SUB_SECTION, CLAUSE, PROVISO, EXPLANATION, SCHEDULE
+- Generic markdown fallback (heading-based paragraphs) for non-statute docs
+- Table extraction from Docling objects (DataFrame or raw cell data)
+- Tests: all mocked (no docling dependency), statute hierarchy, generic parsing, edge cases, output contract
 
 ### Subtask 6: Pipeline + CLI + Integration Tests (~20 tests)
 **Files:** `pipeline.py`, `run.py`, `__main__.py`

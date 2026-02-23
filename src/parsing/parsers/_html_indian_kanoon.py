@@ -126,15 +126,11 @@ class IndianKanoonHtmlParser(BaseParser):
         if judgments_div is None or not isinstance(judgments_div, Tag):
             judgments_div = soup.find("body")
             if judgments_div is None or not judgments_div.get_text(strip=True):
-                raise DocumentStructureError(
-                    f"No content found in {content_path}"
-                )
+                raise DocumentStructureError(f"No content found in {content_path}")
             _log.warning("missing_judgments_div", path=str(content_path))
 
         raw_text = judgments_div.get_text(separator="\n", strip=True)
-        paragraphs: list[Tag] = [
-            p for p in judgments_div.find_all("p") if isinstance(p, Tag)
-        ]
+        paragraphs: list[Tag] = [p for p in judgments_div.find_all("p") if isinstance(p, Tag)]
 
         if doc_type == DocumentType.JUDGMENT:
             sections = self._parse_judgment(paragraphs)
@@ -219,12 +215,8 @@ class IndianKanoonHtmlParser(BaseParser):
 
         text = judgments_div.get_text()
         # Use boundary-based patterns (no ^ anchor) for mid-text detection
-        has_sections = bool(
-            re.search(r"\bSection\s+\d+", text, re.IGNORECASE)
-        )
-        has_chapters = bool(
-            re.search(r"\bCHAPTER\s+[IVXLCDM\d]+", text, re.IGNORECASE)
-        )
+        has_sections = bool(re.search(r"\bSection\s+\d+", text, re.IGNORECASE))
+        has_chapters = bool(re.search(r"\bCHAPTER\s+[IVXLCDM\d]+", text, re.IGNORECASE))
         has_act_number = bool(_ACT_NUMBER_RE.search(text))
 
         if has_sections and (has_chapters or has_act_number):
@@ -259,9 +251,7 @@ class IndianKanoonHtmlParser(BaseParser):
 
         # 2) No structural markers → single paragraph
         if not boundaries:
-            all_text = "\n\n".join(
-                p.get_text(strip=True) for p in paragraphs
-            )
+            all_text = "\n\n".join(p.get_text(strip=True) for p in paragraphs)
             if not all_text:
                 return []
             return [
@@ -295,9 +285,7 @@ class IndianKanoonHtmlParser(BaseParser):
         for k, (idx, level, heading) in enumerate(boundaries):
             end = boundaries[k + 1][0] if k + 1 < len(boundaries) else len(paragraphs)
             content_paragraphs = paragraphs[idx + 1 : end]
-            text = "\n\n".join(
-                p.get_text(strip=True) for p in content_paragraphs
-            )
+            text = "\n\n".join(p.get_text(strip=True) for p in content_paragraphs)
             sec_id = f"jdg_{level.value}"
             sections.append(
                 ParsedSection(
@@ -358,9 +346,7 @@ class IndianKanoonHtmlParser(BaseParser):
                         current_section, current_chapter, sections
                     )
                     # Finalize current chapter → top-level
-                    current_chapter = self._finalize_chapter(
-                        current_chapter, sections
-                    )
+                    current_chapter = self._finalize_chapter(current_chapter, sections)
                     current_chapter = ParsedSection(
                         id=f"ch_{ch_match.group(1)}",
                         level=SectionLevel.CHAPTER,
@@ -392,11 +378,10 @@ class IndianKanoonHtmlParser(BaseParser):
             # -- Child-level classification (proviso, explanation, clause) --------
             if current_section is not None:
                 if _PROVISO_RE.match(text):
-                    prov_idx = sum(
-                        1
-                        for c in current_section.children
-                        if c.level == SectionLevel.PROVISO
-                    ) + 1
+                    prov_idx = (
+                        sum(1 for c in current_section.children if c.level == SectionLevel.PROVISO)
+                        + 1
+                    )
                     current_section.children.append(
                         ParsedSection(
                             id=f"{current_section.id}_proviso_{prov_idx}",
@@ -409,11 +394,14 @@ class IndianKanoonHtmlParser(BaseParser):
                     continue
 
                 if _EXPLANATION_RE.match(text):
-                    exp_idx = sum(
-                        1
-                        for c in current_section.children
-                        if c.level == SectionLevel.EXPLANATION
-                    ) + 1
+                    exp_idx = (
+                        sum(
+                            1
+                            for c in current_section.children
+                            if c.level == SectionLevel.EXPLANATION
+                        )
+                        + 1
+                    )
                     current_section.children.append(
                         ParsedSection(
                             id=f"{current_section.id}_explanation_{exp_idx}",
@@ -492,9 +480,7 @@ class IndianKanoonHtmlParser(BaseParser):
             bold_text = bold.get_text(strip=True) if bold and isinstance(bold, Tag) else ""
 
             # Stop at first chapter or section heading
-            if bold_text and (
-                _CHAPTER_RE.match(bold_text) or _SECTION_RE.match(bold_text)
-            ):
+            if bold_text and (_CHAPTER_RE.match(bold_text) or _SECTION_RE.match(bold_text)):
                 break
 
             preamble_parts.append(text)

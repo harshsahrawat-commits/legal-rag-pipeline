@@ -221,9 +221,7 @@ class TestStatuteParsing:
         raw = _make_raw_doc(doc_type=DocumentType.STATUTE)
         doc = IndianKanoonHtmlParser().parse(path, raw)
 
-        preamble = next(
-            (s for s in doc.sections if s.level == SectionLevel.PREAMBLE), None
-        )
+        preamble = next((s for s in doc.sections if s.level == SectionLevel.PREAMBLE), None)
         assert preamble is not None
         assert "Act No. 9 of 1872" in preamble.text
 
