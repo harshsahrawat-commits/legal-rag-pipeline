@@ -179,3 +179,19 @@ class ParsingConfig(BaseModel):
     """Root model for configs/parsing.yaml."""
 
     settings: ParsingSettings = Field(default_factory=ParsingSettings)
+
+
+# --- Pipeline result model ---
+
+
+class ParsingResult(BaseModel):
+    """Summary of a parsing pipeline run."""
+
+    source_type: SourceType | None = None
+    documents_found: int = 0
+    documents_parsed: int = 0
+    documents_skipped: int = 0
+    documents_failed: int = 0
+    errors: list[str] = Field(default_factory=list)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    finished_at: datetime | None = None
