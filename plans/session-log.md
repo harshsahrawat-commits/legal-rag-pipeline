@@ -319,3 +319,75 @@
 2. Create `plans/phase-3-chunking.md`
 3. Rename `master` → `main` if desired
 4. Check for Indian Kanoon API approval
+
+---
+
+## Session: 2026-02-24 (second session)
+**Phase:** Phase 3 — Chunking (Subtasks 1–7 of 8)
+
+**What was built:**
+
+1. **Subtask 1 — Foundation (50 tests):**
+   - `src/chunking/_models.py` — All enums (`ChunkType`, `ChunkStrategy`, `TemporalStatus`, `CourtHierarchy`), all sub-models (`SourceInfo`, `StatuteMetadata`, `AmendmentRecord`, `JudgmentMetadata`, `ContentMetadata`, `IngestionMetadata`, `ParentDocumentInfo`), `LegalChunk`, `ChunkingSettings`, `ChunkingConfig`, `ChunkingResult`
+   - `src/chunking/_exceptions.py` — `ChunkingError` hierarchy (5 types)
+   - `src/chunking/_config.py` — YAML config loader
+   - `src/chunking/_token_counter.py` — `TokenCounter` (tiktoken `cl100k_base`)
+   - `configs/chunking.yaml` — Chunking configuration
+
+2. **Subtask 2 — Base + Metadata + PageLevel (53 tests):**
+   - `src/chunking/chunkers/_base.py` — `BaseChunker` ABC
+   - `src/chunking/_metadata_builder.py` — `MetadataBuilder` (source, statute, judgment, content, ingestion metadata + citation extraction regex)
+   - `src/chunking/chunkers/_page_level.py` — Strategy 6: page-per-chunk, degraded scan flagging
+
+3. **Subtask 3 — StatuteBoundaryChunker (23 tests):**
+   - `src/chunking/chunkers/_statute_boundary.py` — Strategy 1: section-boundary chunking
+   - Walk sections tree recursively, prepend act name header
+   - Split at sub-section boundaries when >max_tokens, keep proviso/explanation with parent
+   - Definition sections tagged `ChunkType.DEFINITION`, schedules as `SCHEDULE_ENTRY`
+
+4. **Subtask 4 — JudgmentStructuralChunker (18 tests):**
+   - `src/chunking/chunkers/_judgment_structural.py` — Strategy 2: judgment structural chunking
+   - Header → compact chunk, its ID set as `judgment_header_chunk_id` on ALL other chunks
+   - Holding never split; Facts/Reasoning split at paragraph boundaries
+   - Dissent/Obiter get own chunks
+
+5. **Subtask 5 — Router + Pipeline + CLI (22 tests):**
+   - `src/chunking/_router.py` — `ChunkerRouter` (tiered priority selection)
+   - `src/chunking/pipeline.py` — `ChunkingPipeline` (discover → load → route → chunk → post-process → save)
+   - `src/chunking/run.py` + `__main__.py` — CLI with `--source`, `--dry-run`, `--log-level`, `--console-log`, `--config`
+   - Post-processing: sequential `chunk_index`, `sibling_chunk_ids` (±2 window)
+
+6. **Subtask 6 — RSC + SemanticChunker (24 tests):**
+   - `src/chunking/chunkers/_recursive_semantic.py` — Strategy 3: 3-phase RSC (recursive split → semantic merge → oversized split)
+   - `src/chunking/chunkers/_semantic_maxmin.py` — Strategy 5: sentence-level embedding similarity, percentile threshold
+   - Both use lazy `sentence-transformers` import, all tests mock embeddings
+
+7. **Subtask 7 — PropositionChunker (14 tests):**
+   - `src/chunking/chunkers/_proposition.py` — Strategy 4: LLM decomposition of definitions
+   - Lazy `anthropic` import, tests mock API client
+
+**Results:** 204 new tests (512 total across all modules), lint clean, format clean
+
+**What broke:**
+1. `_flatten_section_text` didn't include `section.number` → sub-section numbers like `(1)` missing from chunk text. Fix: build label from number + title.
+2. `_find_definition_sections` returned both parent and children definitions → double-chunking. Fix: skip children when parent already matched.
+3. `SemanticMaxMinChunker._merge_and_split` — tiny groups kept merging without checking if accumulated result exceeds max_tokens. Fix: check merged size before appending.
+4. `_recursive_split` test expected split at `\n\n` but text was under max_tokens. Fix: lowered max_tokens in test.
+
+**Decisions made:**
+1. **Chunkers are pure transforms** — accept `ParsedDocument`, return `list[LegalChunk]`. Pipeline handles all I/O.
+2. **One `TokenCounter` instance shared across all chunkers** — injected via constructor.
+3. **Router returns ONE chunker per document** — no multi-chunker orchestration.
+4. **Optional deps degrade gracefully** — `ChunkerNotAvailableError` when sentence-transformers/anthropic not installed, router skips.
+5. **`CourtHierarchy` is `IntEnum`** — enables comparison operators for precedent authority.
+6. **numpy used directly for cosine similarity** — dot product of L2-normalized vectors. No sklearn dependency.
+
+**Open questions:**
+- Subtask 8 (integration tests + final wiring) still pending — need to finalize `__init__.py` exports and end-to-end tests
+- RAPTOR + QuIM models defined but deferred — enum values and metadata fields ready
+
+**Next steps:**
+1. Complete Subtask 8: integration tests + final `__init__.py` exports
+2. Commit all Phase 3 work
+3. Run full test suite verification
+4. Update CLAUDE.md chunking CLAUDE.md with implementation details

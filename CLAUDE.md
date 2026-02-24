@@ -28,7 +28,8 @@ legal-rag-pipeline/
 │   ├── embedding/         # Fine-tuned model inference, indexing
 │   ├── knowledge_graph/   # Neo4j schema, ingestion, query builders
 │   ├── hallucination/     # Citation verification, temporal checks, confidence scoring
-│   ├── retrieval/         # Hybrid search, reranking, fusion
+│   ├── query/             # Query Intelligence Layer (cache, router, HyDE)
+│   ├── retrieval/         # Hybrid search, reranking, fusion, FLARE
 │   ├── evaluation/        # RAGAS pipeline, lawyer eval harness
 │   └── utils/             # Shared helpers, logging, config
 ├── scripts/               # One-off scripts (bulk ingest, migration, benchmarks)
@@ -89,16 +90,17 @@ docker compose up -d qdrant neo4j redis  # Start local services
 
 **IMPORTANT:** Before starting any task, identify which docs below are relevant and read them first. Load the full context before making changes.
 
-- `docs/pipeline_architecture.md` — Full 8-phase pipeline with data flow diagrams
+- `docs/pipeline_architecture.md` — Full 9-phase pipeline (Phase 0-9) with data flow diagrams
+- `docs/query_intelligence.md` — Phase 0: semantic cache, query router, HyDE
 - `docs/parsing_guide.md` — Docling configuration, fallback parsers, quality validation
-- `docs/chunking_strategies.md` — Structure-aware, semantic, RAPTOR, QuIM-RAG details
-- `docs/enrichment_guide.md` — Late Chunking + Contextual Retrieval implementation
+- `docs/chunking_strategies.md` — 6 chunking strategies + tiered routing + RAPTOR + QuIM-RAG
+- `docs/enrichment_guide.md` — Late Chunking + Contextual Retrieval + prompt caching patterns
 - `docs/knowledge_graph_schema.md` — Neo4j node/relationship types, Cypher patterns
-- `docs/metadata_schema.md` — Complete Pydantic models for chunk metadata
-- `docs/hallucination_mitigation.md` — Citation verification, temporal checks, confidence scoring
-- `docs/embedding_fine_tuning.md` — Fine-tuning plan for Indian legal embeddings
+- `docs/metadata_schema.md` — Complete Pydantic models for chunk metadata (incl. parent-doc fields)
+- `docs/hallucination_mitigation.md` — 5-layer defense: citation, temporal, confidence, GenGround, Finetune-RAG
+- `docs/embedding_fine_tuning.md` — QLoRA + NEFTune + DPO fine-tuning for Indian legal embeddings
 - `docs/indian_legal_structure.md` — How Indian statutes/judgments are structured (for non-lawyers)
-- `docs/evaluation_framework.md` — RAGAS metrics, lawyer evaluation protocol, targets
+- `docs/evaluation_framework.md` — RAGAS + latency + routing metrics, monitoring cadence
 
 ## Git Workflow
 

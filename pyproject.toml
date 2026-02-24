@@ -15,6 +15,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "pyyaml>=6.0",
     "tenacity>=8.2",
+    "tiktoken>=0.7",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,13 @@ dev = [
     "pytest-cov>=4.1",
     "aioresponses>=0.7",
     "ruff>=0.4",
+]
+chunking-ml = [
+    "sentence-transformers>=2.2",
+    "spacy>=3.7",
+]
+chunking-llm = [
+    "anthropic>=0.18",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -1,14 +1,43 @@
-# Pipeline Architecture — 8-Phase Ingestion System
+# Pipeline Architecture — 9-Phase System
 
 ## Overview
 
 ```
-Raw Documents → [1. Acquisition] → [2. Parsing] → [3. Chunking] → [4. Enrichment] → [5. Embedding & Indexing] → [6. Knowledge Graph] → [7. Hallucination Mitigation] → [8. Quality Assurance]
+                                        INGESTION PIPELINE
+Raw Documents → [1. Acquisition] → [2. Parsing] → [3. Chunking] → [4. Enrichment] → [5. Embedding & Indexing] → [6. Knowledge Graph]
+
+                                        QUERY-TIME PIPELINE
+User Query → [0. Query Intelligence] → [7. Retrieval] → [8. Hallucination Mitigation] → [9. Quality Assurance]
 ```
 
 Each phase is a standalone module. Phases communicate via filesystem (parsed files, chunk JSONs) or message queue (Redis/Celery for async). Every phase is idempotent — safe to re-run.
 
-## Phase 1: Agentic Acquisition (`src/acquisition/`)
+---
+
+## Phase 0: Query Intelligence Layer (`src/query/`) — NEW
+
+A pre-retrieval layer that decides *whether*, *how*, and *how deeply* to retrieve for each query. Three stacked components.
+
+Full details in `docs/query_intelligence.md`.
+
+**Component A: Semantic Query Cache** — Qdrant `query_cache` collection + Redis response store. 0.92 similarity threshold, 24hr TTL, amendment-triggered invalidation. Expected 30-50% hit rate, 123x latency reduction on hits.
+
+**Component B: Adaptive RAG Query Router** — Rule-based classifier routing queries to 4 retrieval paths:
+- SIMPLE → Knowledge Graph direct query (100-200ms)
+- STANDARD → Full hybrid retrieval (500-800ms)
+- COMPLEX → Hybrid + graph + RAPTOR (1-2s)
+- ANALYTICAL → FLARE active retrieval (2-5s)
+
+**Component C: Selective HyDE** — For COMPLEX/ANALYTICAL queries only, generate hypothetical answer via LLM and use its embedding for vector search. +18-29% NDCG improvement.
+
+**End-to-end query flow:**
+```
+Query → Embed (20ms) → Cache Check (5ms) → Route (5ms) → [HyDE if complex] → Retrieval → Rerank → Parent Expand → LLM → Cache Store
+```
+
+---
+
+## Phase 1: Agentic Acquisition (`src/acquisition/`) — COMPLETE
 
 Three agents orchestrated by Celery:
 
@@ -22,7 +51,9 @@ Key sources: Indian Kanoon (HTML), India Code (HTML/PDF), Supreme Court (PDF), 2
 
 Store source manifest in `configs/sources.yaml`. Version-controlled so we can track when source structures change.
 
-## Phase 2: Parsing (`src/parsing/`)
+---
+
+## Phase 2: Parsing (`src/parsing/`) — COMPLETE
 
 **Primary:** Docling (IBM, MIT License). Runs locally. Handles PDF (layout analysis + TableFormer), HTML (BeautifulSoup), scanned PDFs (Granite-Docling VLM for OCR).
 
@@ -36,25 +67,33 @@ Store source manifest in `configs/sources.yaml`. Version-controlled so we can tr
 
 Output: `ParsedDocument` Pydantic model with raw text + structural markers.
 
+---
+
 ## Phase 3: Chunking (`src/chunking/`)
 
-**Route by document type:**
+**Tiered routing by document type AND condition** (not just type):
 
-| Document Type | Strategy | Chunk Boundary |
-|---|---|---|
-| Statute/Act | Structure-boundary | Section (with sub-sections, provisos, explanations) |
-| Judgment | Structural | Facts / Issues / Per-issue reasoning / Holding / Order |
-| Notification/Circular | Semantic (Max-Min) | Similarity-drop sentence boundaries |
-| Schedule/Table | Page-level | Full table or schedule entry |
+| Condition | Strategy | Chunk Boundary |
+|-----------|----------|----------------|
+| Well-structured statute | Structure-boundary | Section (with sub-sections, provisos, explanations) |
+| Well-structured judgment | Structural | Facts / Issues / Per-issue reasoning / Holding / Order |
+| Definitions section (S.2/3) | Proposition-based (LLM) | Each definition = atomic self-contained chunk |
+| Partial structure | Recursive Semantic (RSC) | Structural split + semantic merge/split validation |
+| Degraded scan (OCR < 80%) | Page-level | One page = one chunk, flagged for manual review |
+| Unstructured text | Semantic (Max-Min) | Similarity-drop sentence boundaries |
 
 **Max chunk size:** 1500 tokens. If a section exceeds this, split at sub-section boundaries.
-**Overlap:** Not used for structure-boundary chunks (boundaries are semantic). 10-20% for semantic chunks.
+**Overlap:** Not used for structure-boundary chunks (boundaries are semantic). 10-20% for semantic/RSC chunks.
 
 **Enhancement layers (applied on top of base chunks):**
-- **RAPTOR trees:** Recursive summary hierarchy per Act. Level 0 = Act summary, Level 1 = Chapter summaries, Level 2 = Section chunks.
+- **RAPTOR trees:** Per-Act recursive summary hierarchy. Level 0 = Act summary, Level 1 = Chapter summaries, Level 2 = Section chunks. Rebuilt per-Act when amendments arrive.
 - **QuIM-RAG:** Pre-generate 3-5 questions per chunk using Claude Haiku. Store question embeddings as additional retrieval pathway.
 
 Output: `LegalChunk` Pydantic model. See `docs/metadata_schema.md`.
+
+Full strategy details in `docs/chunking_strategies.md`.
+
+---
 
 ## Phase 4: Enrichment (`src/enrichment/`)
 
@@ -76,23 +115,55 @@ Two complementary techniques applied to ALL chunks:
 
 **Use both:** Late Chunking for vector embeddings, Contextual Retrieval for BM25 text.
 
+---
+
 ## Phase 5: Embedding & Indexing (`src/embedding/`)
 
 **Embedding model:** Fine-tuned BGE-m3 (multilingual, handles Hindi+English+legal Latin).
-Fine-tuning details in `docs/embedding_fine_tuning.md`.
+Fine-tuning uses QLoRA + NEFTune + DPO. Details in `docs/embedding_fine_tuning.md`.
+
+**Dual Matryoshka Indexing:**
+
+Store each chunk at two resolutions in Qdrant using named vectors:
+
+```python
+qdrant_client.create_collection(
+    collection_name="legal_chunks",
+    vectors_config={
+        "fast": VectorParams(size=64, distance=Distance.COSINE),   # Broad candidate search
+        "full": VectorParams(size=768, distance=Distance.COSINE)   # Precision re-scoring
+    }
+)
+
+# Per chunk:
+qdrant_client.upsert(
+    collection_name="legal_chunks",
+    points=[{
+        "id": chunk.chunk_id,
+        "vector": {
+            "full": full_embedding.tolist(),      # 768-dim from Late Chunking
+            "fast": full_embedding[:64].tolist()   # 64-dim Matryoshka slice
+        },
+        "payload": chunk.metadata  # Including parent_chunk_id, sibling_chunk_ids
+    }]
+)
+```
 
 **Indexing targets:**
-1. **Qdrant** — Dense vectors (from Late Chunking) + BM25 sparse index (from contextualized text)
-2. **Qdrant** — QuIM-RAG question embeddings (separate collection, linked by chunk_id)
-3. **Neo4j** — Knowledge graph nodes/relationships
+1. **Qdrant** — Dual dense vectors (64-dim fast + 768-dim full) + BM25 sparse index (from contextualized text)
+2. **Qdrant** — QuIM-RAG question embeddings (separate `quim_questions` collection, linked by chunk_id)
+3. **Redis** — Parent document text store (key = parent_chunk_id, value = parent text + metadata)
+4. **Neo4j** — Knowledge graph nodes/relationships
 
-**Retrieval pipeline:**
-```
-Query → Dense search (top 100) + BM25 search (top 100) + QuIM search (top 50) + Graph traversal
-      → Reciprocal Rank Fusion → Deduplicate → Top 150
-      → Cross-encoder reranking (BGE-reranker-v2-m3) → Top 20
-      → Pass to LLM
-```
+**Storage estimates:**
+| Component | Size |
+|-----------|------|
+| 768-dim vectors (~3M chunks) | ~9.2 GB |
+| 64-dim vectors (~3M chunks) | ~768 MB |
+| Redis parent text store (~100K parents) | ~200 MB |
+| **Total** | **~10.2 GB** |
+
+---
 
 ## Phase 6: Knowledge Graph (`src/knowledge_graph/`)
 
@@ -103,21 +174,95 @@ Key capabilities this enables:
 - **Amendment cascading:** When new amendment ingested, auto-identify affected chunks
 - **Citation traversal:** "Find all SC judgments interpreting Section 498A IPC"
 - **Hierarchy navigation:** "Which sections fall under Chapter XVII of IPC?"
+- **Direct query path:** SIMPLE queries routed by Phase 0 are answered by KG alone
 
-## Phase 7: Hallucination Mitigation (`src/hallucination/`)
+---
+
+## Phase 7: Retrieval (`src/retrieval/`)
+
+**Retrieval pipeline (updated with funnel + parent expansion):**
+
+```
+Query Embedding (768-dim)
+    │
+    ├── Matryoshka Funnel Search:
+    │   Stage 1: 64-dim fast search → top 1,000 candidates (15-20ms)
+    │   Stage 2: 768-dim re-score candidates → top 100 (5-10ms)
+    │
+    ├── BM25 search on contextualized text → top 100
+    │
+    ├── QuIM search on quim_questions collection → top 50
+    │
+    ├── Graph traversal (Neo4j) → related chunks
+    │
+    └── Reciprocal Rank Fusion → Deduplicate → Top 150
+        │
+        └── Cross-encoder reranking (BGE-reranker-v2-m3) → Top 20
+            │
+            └── Parent-Document Context Expansion:
+                ├── Fetch parent text from Redis for sub-section matches
+                ├── Always include judgment header for judgment matches
+                ├── Token-budget aware (max 30K context tokens)
+                └── Deduplicate across matches
+                    │
+                    └── Pass to LLM with expanded context
+```
+
+**For ANALYTICAL queries only — FLARE Active Retrieval:**
+- Generate response in 300-token segments with logprobs
+- When token confidence drops below threshold → trigger targeted re-retrieval
+- Cap at 5 additional retrievals per response
+- Adds 200-500ms per trigger, 2-5s total for analytical queries
+
+---
+
+## Phase 8: Hallucination Mitigation (`src/hallucination/`)
 
 Five sub-layers. Full details in `docs/hallucination_mitigation.md`.
 
 1. **Citation verification** — Every case/section in LLM output verified against KG
 2. **Temporal consistency** — Check all referenced laws are currently in force
 3. **Confidence scoring** — Weighted score from retrieval relevance, source authority, citation verification rate
-4. **Grounded refinement** — Post-generation pass that cross-references claims against retrieved chunks
-5. **Finetune-RAG** (Phase 2) — Fine-tune generation model to resist hallucination from noisy retrieval
+4. **GenGround verification** — Per-claim re-retrieval + alignment scoring. Tiered: GenGround for STANDARD+ queries, basic single-pass for SIMPLE queries
+5. **Finetune-RAG** (Phase 3+) — Fine-tune generation model to resist hallucination, using synthetic adversarial training data + DPO
 
-## Phase 8: Quality Assurance (`src/evaluation/`)
+---
+
+## Phase 9: Quality Assurance (`src/evaluation/`)
 
 **Automated (RAGAS):** Context recall > 0.90, context precision > 0.85, faithfulness > 0.95, citation accuracy > 0.98, temporal accuracy > 0.99.
+
+**Latency targets:**
+| Query Type | TTFT Target |
+|------------|-------------|
+| SIMPLE | <200ms |
+| STANDARD | <800ms |
+| COMPLEX | <2s |
+| ANALYTICAL | <5s |
+
+**Query Intelligence metrics:** Cache hit rate > 30%, routing accuracy > 90%, GenGround claim verification rate > 95%.
 
 **Human (lawyer evaluation):** 200 queries across 5 practice areas. Target 85%+ accuracy before launch.
 
 Details in `docs/evaluation_framework.md`.
+
+---
+
+## Infrastructure Co-Location Requirement
+
+At deployment, ALL components must be in the same availability zone:
+
+```
+Same machine or same AZ cluster:
+├── Qdrant (vector search)
+├── Neo4j (knowledge graph)
+├── Redis (parent document store + semantic cache)
+├── Embedding model (for query embedding at search time)
+├── Reranker model (BGE-reranker-v2-m3)
+└── Application server (Celery workers, API)
+
+External API (only component that crosses network boundary):
+└── LLM API (Claude) — for generation and hallucination mitigation
+```
+
+Inter-service latency target: <1ms between Qdrant/Neo4j/Redis/embedding model. This is achievable on a single server or within a cloud provider's AZ.

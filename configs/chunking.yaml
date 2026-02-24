@@ -1,0 +1,27 @@
+settings:
+  input_dir: "data/parsed"
+  output_dir: "data/chunks"
+
+  # Token limits
+  max_tokens: 1500
+  overlap_tokens: 150
+  min_chunk_tokens: 50
+
+  # Quality thresholds
+  ocr_confidence_threshold: 0.80
+  min_section_count_statute: 3
+  min_section_count_judgment: 2
+
+  # Semantic chunking
+  similarity_threshold: 0.75
+  semantic_percentile: 0.25
+
+  # Page-level chunking
+  page_separator: "\f"
+
+  # Proposition chunker (LLM)
+  proposition_model: "claude-haiku-4-5-20251001"
+  proposition_max_tokens_response: 4096
+
+  # Embedding model (for RSC / semantic)
+  embedding_model: "BAAI/bge-m3"

@@ -40,6 +40,18 @@ class ChunkType(str, Enum):
     ORDER = "order"
     DISSENT = "dissent"
     OBITER = "obiter"
+    RAPTOR_SUMMARY = "raptor_summary"
+
+class ChunkStrategy(str, Enum):
+    """Which chunking strategy produced this chunk."""
+    STRUCTURE_BOUNDARY = "structure_boundary"    # Statute sections
+    JUDGMENT_STRUCTURAL = "judgment_structural"  # Judgment headings
+    RECURSIVE_SEMANTIC = "recursive_semantic"    # RSC hybrid fallback
+    PROPOSITION = "proposition"                  # LLM-decomposed definitions
+    SEMANTIC_MAXMIN = "semantic_maxmin"           # Max-Min semantic fallback
+    PAGE_LEVEL = "page_level"                    # Page-per-chunk for degraded scans/schedules
+    RAPTOR = "raptor"                            # RAPTOR summary tree nodes
+    QUIM = "quim"                                # QuIM-RAG generated questions
 
 class CourtHierarchy(int, Enum):
     SUPREME_COURT = 1
@@ -106,11 +118,31 @@ class IngestionMetadata(BaseModel):
     parser: str                     # "docling_v2", "llamaparse", "tesseract"
     ocr_confidence: float | None = None
     quality_score: float | None = None
-    chunk_strategy: str             # "structure_boundary", "semantic", "raptor"
+    chunk_strategy: ChunkStrategy   # Which chunking strategy produced this chunk
     contextualized: bool = False
     late_chunked: bool = False
     quim_questions: int = 0
     raptor_summary: bool = False
+    raptor_level: int | None = None # 0=Act summary, 1=chapter, 2=section (base)
+    requires_manual_review: bool = False  # True for degraded scans
+
+class ParentDocumentInfo(BaseModel):
+    """Parent-child relationships for retrieval-time context expansion.
+
+    At retrieval time, the system fetches parent text from Redis to give
+    the LLM surrounding context (e.g., full section when sub-section matched).
+    Parent text is stored in Redis (~200MB for 100K parents at ~2KB avg).
+    """
+    parent_chunk_id: UUID | None = None
+    """For statutes: full section if this is a sub-section, or full chapter if this is a section.
+    For judgments: full issue section if this is reasoning."""
+
+    sibling_chunk_ids: list[UUID] = []
+    """+-2 adjacent chunks from the same document for windowed context."""
+
+    judgment_header_chunk_id: UUID | None = None
+    """For judgment chunks: always points to the header/metadata chunk.
+    At retrieval time, judgment header is always included for case context."""
 
 class LegalChunk(BaseModel):
     """The core data unit of the entire pipeline. Every chunk is this."""
@@ -118,20 +150,22 @@ class LegalChunk(BaseModel):
     document_id: UUID
     text: str                       # Original chunk text
     contextualized_text: str | None = None  # After Contextual Retrieval
-    
+
     document_type: DocumentType
     chunk_type: ChunkType
     chunk_index: int                # Position within document
     token_count: int
-    
+
     source: SourceInfo
     statute: StatuteMetadata | None = None
     judgment: JudgmentMetadata | None = None
     content: ContentMetadata
     ingestion: IngestionMetadata
-    
+    parent_info: ParentDocumentInfo = Field(default_factory=ParentDocumentInfo)
+
     # Embeddings stored separately in Qdrant, linked by chunk id
-    # QuIM questions stored separately, linked by chunk id
+    # Qdrant stores dual named vectors: "fast" (64-dim) + "full" (768-dim)
+    # QuIM questions stored separately in quim_questions collection, linked by chunk id
 ```
 
 ## Usage Rules
@@ -141,3 +175,6 @@ class LegalChunk(BaseModel):
 3. **content.sections_cited must be verified** against the knowledge graph during Phase 7.
 4. **temporal_status must be refreshed** whenever an amendment is ingested.
 5. **Serialize to JSON** for storage: `chunk.model_dump_json()`. Deserialize: `LegalChunk.model_validate_json(data)`.
+6. **chunk_strategy must always be set.** Every chunk must declare which strategy produced it.
+7. **parent_info.parent_chunk_id** should be populated at chunking time for all sub-section and reasoning chunks. The parent text itself is stored in Redis (key = parent_chunk_id, value = parent chunk text + metadata).
+8. **parent_info.judgment_header_chunk_id** must be set for every judgment chunk. At retrieval time, the header is always fetched alongside matched judgment chunks.
