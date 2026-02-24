@@ -432,3 +432,82 @@
 1. Begin Phase 4 (Enrichment) — read `docs/enrichment_guide.md` first
 2. Create `plans/phase-4-enrichment.md`
 3. Consider router fix for degraded scan priority before Phase 4
+
+---
+
+## Session: 2026-02-25 02:30
+**Phase:** Phase 4 — Enrichment (all 5 subtasks complete)
+
+**What was built:**
+
+1. **Phase 4 plan** — Full implementation plan in `plans/phase-4-enrichment.md`: 5 subtasks, ~191 estimated tests, Late Chunking deferred to Phase 5 (it's an embedding operation).
+
+2. **Subtask 1 — Foundation (37 tests):**
+   - `src/enrichment/_exceptions.py` — 6 exception classes: `EnrichmentError`, `ContextualRetrievalError`, `QuIMGenerationError`, `EnricherNotAvailableError`, `LLMRateLimitError`, `DocumentTextTooLargeError`
+   - `src/enrichment/_models.py` — `QuIMEntry`, `QuIMDocument`, `EnrichmentSettings`, `EnrichmentConfig`, `EnrichmentResult`
+   - `src/enrichment/_config.py` — YAML config loader (mirrors `load_chunking_config`)
+   - `configs/enrichment.yaml` — settings: input/output/parsed dirs, model, concurrency, quim_questions_per_chunk, context_window_tokens
+
+3. **Subtask 2 — BaseEnricher + ContextualRetrievalEnricher (34 tests):**
+   - `src/enrichment/enrichers/_base.py` — `BaseEnricher` ABC with `async enrich_document()` and `stage_name` property
+   - `src/enrichment/enrichers/_contextual.py` — Full implementation (~230 lines):
+     - AsyncAnthropic client with lazy init
+     - Prompt caching: full doc in system message with `cache_control: {"type": "ephemeral"}`
+     - Document windowing for docs >180K tokens (splits into overlapping windows)
+     - `asyncio.Semaphore` concurrency control
+     - Per-chunk error isolation (failed chunks stay unenriched, others proceed)
+     - Sets `chunk.contextualized_text = f"{context}\n\n{chunk.text}"` and `chunk.ingestion.contextualized = True`
+
+4. **Subtask 3 — QuIMRagEnricher (28 tests):**
+   - `src/enrichment/enrichers/_quim.py` — Same prompt caching pattern, generates N questions per chunk
+   - `get_quim_document()` returns accumulated `QuIMDocument` for sidecar file
+   - `_parse_questions()` helper filters LLM output (blank lines, short non-questions)
+   - Resolves Act name / case citation and section reference for prompt context
+
+5. **Subtask 4 — Pipeline Orchestrator (21 tests):**
+   - `src/enrichment/pipeline.py` — `EnrichmentPipeline` (~240 lines):
+     - `async run(source_name, stage, dry_run) -> EnrichmentResult`
+     - Stage selection: `None` = both, `"contextual_retrieval"`, `"quim_rag"`
+     - Discovery: scans `data/chunks/{source}/*.json`, excludes `.quim.json`
+     - Idempotency: skip if output file + quim file already exist
+     - Per-document error isolation
+     - Loads ParsedDocument for full text context; falls back to empty stub if missing
+     - Saves enriched chunks to `data/enriched/{source}/` and QuIM sidecar to `.quim.json`
+
+6. **Subtask 5 — CLI + Integration Tests (24 tests):**
+   - `src/enrichment/run.py` — CLI: `--source`, `--stage`, `--dry-run`, `--log-level`, `--console-log`, `--config`
+   - `src/enrichment/__main__.py` — module runner
+   - `src/enrichment/__init__.py` — exports `EnrichmentConfig`, `EnrichmentPipeline`, `EnrichmentResult`, `run_enrichment()`
+   - `tests/enrichment/conftest.py` — shared fixtures: sample chunks, parsed doc, `make_mock_async_anthropic()`
+   - `tests/enrichment/test_integration.py` — 15 end-to-end tests: both stages, idempotency, error isolation, JSON round-trip
+   - `tests/enrichment/test_run.py` — 9 CLI + export tests
+
+**Results:** 144 new enrichment tests (678 total project), lint clean, format clean
+
+**What broke:**
+1. **Ruff TC003 on `UUID` import** — Pydantic needs `UUID` at runtime for model fields, but Ruff wants it in `TYPE_CHECKING`. Fix: `# noqa: TC003` (same pattern as `# noqa: TC001` for cross-module Pydantic field types).
+2. **Ruff TC003 on `Path` import in tests** — `Path` used both in annotations (string after `from __future__ import annotations`) and runtime (`Path(...)` calls). Fix: `# noqa: TC003`.
+3. **Pipeline test expected `documents_failed=1` on enricher failure** — But the contextual enricher isolates errors per-chunk, so even when all LLM calls fail, `enrich_document()` returns normally (no document-level exception). The document is "enriched" with zero contextualized chunks. Fix: updated test to assert `documents_enriched=1, chunks_contextualized=0` instead.
+4. **Ruff I001 import sorting** — `# noqa` comments cause import blocks to be considered unsorted. Fix: `ruff check --fix` auto-sorts.
+5. **Unused imports** — `ContextualRetrievalError`, `QuIMGenerationError`, `MagicMock`, `patch`, `pytest` imported but unused in various test/source files. Fix: `ruff check --fix` auto-removed.
+
+**Decisions made:**
+1. **Late Chunking deferred to Phase 5** — It's fundamentally an embedding operation (embed full doc → split token embeddings at chunk boundaries → mean pool). Requires embedding model (BGE-m3/jina) and produces vectors for Qdrant. Inseparable from Phase 5.
+2. **AsyncAnthropic for enrichment** — All LLM calls are I/O-bound. `anthropic.AsyncAnthropic()` with `asyncio.Semaphore(concurrency)` for concurrent chunk processing within a document.
+3. **Separate output directory (`data/enriched/`)** — Preserves Phase 3 originals. Each stage is independent and idempotent per architecture rules.
+4. **QuIM questions as sidecar `.quim.json`** — Separate from enriched chunk file so Phase 5 can embed questions independently.
+5. **Per-chunk error isolation** — Failed LLM calls leave individual chunks unenriched; remaining chunks still processed. Document-level isolation catches broader failures.
+6. **Document windowing** — Documents >180K tokens (Haiku context - safety margin) split into overlapping windows. Chunks grouped by window; each window group shares one cached system prompt.
+7. **v2 architecture docs validated unchanged** — `legal-rag-ingestion-v2.md` and `verdict-ai-*-v2-update.md` confirm Phase 4 design matches existing `docs/enrichment_guide.md`. No schema changes needed.
+
+**Open questions:**
+- Router priority for degraded scans still not fixed (Phase 3 carry-over)
+- Indian Kanoon API: still pending non-commercial approval
+- `anthropic` SDK minimum version for `cache_control` support — currently `>=0.18` in pyproject.toml, may need `>=0.28+` for prompt caching
+- Phase 5 (Embedding & Indexing) planning needed — includes Late Chunking, Qdrant dual vectors, BGE-m3 fine-tuning
+
+**Next steps:**
+1. Begin Phase 5 (Embedding & Indexing) — read `docs/embedding_fine_tuning.md` first
+2. Create `plans/phase-5-embedding.md`
+3. Implement Late Chunking as part of Phase 5
+4. Verify `anthropic` SDK version supports `cache_control` parameter

@@ -55,11 +55,10 @@ pytest tests/ -k "integration" # Integration tests only
 
 # Pipeline operations
 python -m src.acquisition.run --source="Indian Kanoon" --mode=incremental
-python -m src.parsing.run --input=data/raw/ --output=data/parsed/
-python -m src.chunking.run --input=data/parsed/ --output=data/chunks/
-python -m src.enrichment.run --stage=contextual_retrieval
-python -m src.enrichment.run --stage=late_chunking
-python -m src.enrichment.run --stage=quim_rag
+python -m src.parsing.run --source="Indian Kanoon" --dry-run
+python -m src.chunking.run --source="Indian Kanoon" --dry-run
+python -m src.enrichment.run --stage=contextual_retrieval --dry-run
+python -m src.enrichment.run --stage=quim_rag --dry-run
 python -m src.embedding.run --index
 python -m src.evaluation.ragas_eval --queries=data/eval/test_queries.json
 
