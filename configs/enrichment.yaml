@@ -1,0 +1,19 @@
+settings:
+  input_dir: "data/chunks"
+  output_dir: "data/enriched"
+  parsed_dir: "data/parsed"
+
+  # LLM settings
+  model: "claude-haiku-4-5-20251001"
+  max_tokens_response: 512
+  concurrency: 5
+
+  # QuIM-RAG
+  quim_questions_per_chunk: 5
+
+  # Document windowing (Haiku 200K context minus safety margin)
+  context_window_tokens: 180000
+  document_window_overlap_tokens: 500
+
+  # Behavior
+  skip_manual_review_chunks: false
