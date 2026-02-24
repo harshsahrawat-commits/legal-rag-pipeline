@@ -270,3 +270,52 @@
 1. Complete Subtask 6 (Pipeline + CLI + integration tests) — final subtask of Phase 2
 2. Commit all Phase 2 Subtasks 4-6 work
 3. Update phase plan with completion status
+
+---
+
+## Session: 2026-02-24 (first session)
+**Phase:** Phase 2 — Document Parsing (Subtask 6 — final)
+
+**What was built:**
+
+1. **Subtask 6 — Pipeline + CLI + Integration Tests (29 tests):**
+   - `src/parsing/pipeline.py` (~270 lines) — `ParsingPipeline` orchestrator:
+     - Constructor: loads config, builds router (IK HTML → IC HTML → Docling PDF priority), creates QualityValidator + PdfDownloader
+     - `async run(source_name, dry_run) → ParsingResult` — discovers `.meta.json` files, processes each document, returns aggregate result
+     - Indian Kanoon flow: load meta.json → route to IK HTML parser → validate → save
+     - India Code two-step flow: download PDF → parse HTML for metadata → parse PDF with Docling → merge metadata → validate → save
+     - Idempotency via output file existence check
+     - Per-document error isolation (never crashes pipeline)
+     - `_merge_metadata()` — HTML-authoritative for metadata fields, PDF-authoritative for content
+   - `src/parsing/run.py` (~80 lines) — CLI: `--source`, `--dry-run`, `--log-level`, `--console-log`, `--config`
+   - `src/parsing/__main__.py` — module runner
+   - `src/parsing/_models.py` — added `ParsingResult` model
+   - `src/parsing/__init__.py` — updated exports (ParsingPipeline, ParsingResult, run_parsing())
+   - `tests/parsing/test_pipeline.py` (29 tests) — 9 test classes:
+     - TestSourceResolution (5), TestDiscovery (4), TestIndianKanoonFlow (3), TestIndiaCodeFlow (3), TestIdempotency (2), TestDryRun (2), TestErrorHandling (4), TestOutputValidation (2), TestMergeMetadata (2), TestParsingResult (2)
+
+2. **GitHub repo created** — https://github.com/harshsahrawat-commits/legal-rag-pipeline (public)
+   - All 7 commits pushed to `origin/master`
+
+**Results:** 308 tests all passing (125 Phase 1 + 183 Phase 2), lint clean, format clean
+
+**What broke:**
+- Nothing broke — clean implementation session. Ruff caught 4 minor issues (unused imports, TC003 Path in TYPE_CHECKING, empty TYPE_CHECKING block) — all fixed before tests ran.
+
+**Decisions made:**
+1. **Single `ParsingResult` return** (not list) — parsing is document-granular, not source-granular like acquisition. One result summarizes the whole run.
+2. **Sequential document processing** — parsers are sync (CPU-bound), only PDF download is async. Keeps it simple; concurrency can be added later.
+3. **`_merge_metadata` as module-level function** — static, testable independently. Uses `model_copy(update=...)` for clean Pydantic v2 immutable updates.
+4. **`_resolve_source_filter` as module-level function** — extracted from class for easier unit testing.
+5. **GitHub repo on `master` branch** — `gh repo create` defaulted to `master`. Can rename to `main` later.
+
+**Open questions:**
+- Indian Kanoon API: still pending approval
+- GitHub branch naming: `master` vs `main` — currently `master`, CLAUDE.md says `main`
+- Phase 3 (Chunking) planning needed — ParsedDocument is now the input contract
+
+**Next steps:**
+1. Begin Phase 3 (Chunking) — read `docs/chunking_strategies.md` first
+2. Create `plans/phase-3-chunking.md`
+3. Rename `master` → `main` if desired
+4. Check for Indian Kanoon API approval

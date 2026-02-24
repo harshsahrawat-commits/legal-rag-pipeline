@@ -197,7 +197,7 @@ HOLDING_MARKERS = ["we hold that", "for the foregoing reasons", "appeal is"]
 - Table extraction from Docling objects (DataFrame or raw cell data)
 - Tests: all mocked (no docling dependency), statute hierarchy, generic parsing, edge cases, output contract
 
-### Subtask 6: Pipeline + CLI + Integration Tests (~20 tests)
+### Subtask 6: Pipeline + CLI + Integration Tests (~20 tests) -- DONE (29 tests)
 **Files:** `pipeline.py`, `run.py`, `__main__.py`
 - `ParsingPipeline.run()`: scan input_dir → load RawDocument → route → parse → validate → save
 - India Code flow: load meta.json → download PDF → parse → save ParsedDocument
