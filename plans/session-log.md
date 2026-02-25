@@ -511,3 +511,52 @@
 2. Create `plans/phase-5-embedding.md`
 3. Implement Late Chunking as part of Phase 5
 4. Verify `anthropic` SDK version supports `cache_control` parameter
+
+---
+
+## Session: 2026-02-25 16:00
+**Phase:** Phase 5 — Embedding & Indexing
+**What was built:**
+- Full `src/embedding/` module (11 source files, 3,639 lines):
+  - `_exceptions.py` — 7 exception classes (EmbeddingError hierarchy)
+  - `_models.py` — SparseVector, EmbeddingSettings, EmbeddingConfig, EmbeddingResult
+  - `_config.py` — YAML config loader (mirrors enrichment pattern)
+  - `_embedder.py` — LateChunkingEmbedder: full doc → token embeddings → slice per chunk → mean pool, plus standard embed_texts() for QuIM, Matryoshka slicing
+  - `_sparse.py` — BM25SparseEncoder: per-doc vocabulary + IDF, BM25-weighted sparse vectors
+  - `_qdrant_indexer.py` — QdrantIndexer: dual-vector (full 768d + fast 64d) + sparse BM25 collections, chunk/QuIM upsert
+  - `_redis_store.py` — RedisParentStore: parent chunk text + judgment header storage
+  - `pipeline.py` — EmbeddingPipeline: 11-step orchestrator (load → idempotency → Late Chunking → Matryoshka → BM25 → Qdrant → QuIM → Redis → flag update)
+  - `run.py` — CLI: --source, --dry-run, --device, --config, --log-level, --console-log
+  - `__init__.py` — Exports: EmbeddingPipeline, EmbeddingConfig, EmbeddingResult
+  - `__main__.py` — Module runner
+- `configs/embedding.yaml` — Connection strings, model name, dims, batch sizes
+- `tests/embedding/` (11 test files, 149 tests):
+  - test_exceptions (11 parametrized), test_models (12), test_config (8), test_embedder (25), test_sparse (20), test_qdrant_indexer (18), test_redis_store (14), test_pipeline (20), test_run (5), test_integration (8), conftest.py (shared fixtures)
+- `pyproject.toml` — Added `[embedding]` optional dependency group (qdrant-client, redis, torch, transformers)
+
+**What broke:**
+1. **TestModelLoading: `patch("src.embedding._embedder.AutoModel")` fails** — AutoModel is lazy-imported inside `load_model()`, not at module level. `patch()` needs module-level attributes. Fix: used `patch.dict("sys.modules", {"transformers": mock_module})` instead.
+2. **Qdrant tests: `qdrant_client` not installed** — Lazy imports inside `_create_chunks_collection`, `upsert_chunks` etc. fail because `qdrant_client.models` isn't available. Fix: created `_build_mock_qdrant_module()` helper that builds fake `qdrant_client` + `qdrant_client.models` modules and patches `sys.modules` via autouse fixture.
+3. **test_embedding_error_isolates: pipeline falls back to embed_texts** — When parsed doc not found → `raw_text=""` → pipeline uses `embed_texts()` instead of `embed_document_late_chunking()`. Mocking only `embed_document_late_chunking` to raise wasn't enough. Fix: mock both `embed_document_late_chunking` and `embed_texts` to raise.
+4. **test_partial_failure: call_count tracking** — With empty full_text, `embed_document_late_chunking` is never called, so the call_count never incremented for the embed_texts path. Fix: simplified to only mock `embed_texts` since that's the code path when no parsed doc exists.
+
+**Decisions made:**
+1. **Use `transformers` directly, not `sentence-transformers`** — Need `last_hidden_state` (token-level embeddings), not pooled output. `sentence-transformers` wraps models and only returns pooled embeddings.
+2. **Token boundary reconstruction via `return_offsets_mapping=True`** — Tokenizer produces char offset mapping; `full_text.find(chunk.text[:80])` maps chunk → char offset → token indices via offset mapping.
+3. **Document windowing for >8192 tokens** — Overlapping windows, embed each, average overlapping token positions. Same approach as Phase 4 enrichment.
+4. **Late Chunking uses `chunk.text`, BM25 uses `contextualized_text`** — Original text for token matching against full doc; contextualized text for BM25 keyword enrichment.
+5. **Per-document BM25 vocabulary** — Sufficient for indexing. Global IDF can be added later as optimization.
+6. **Qdrant sync client** — Simpler than async client, adequate for local Qdrant. Methods are async in pipeline but client calls are sync.
+7. **`numpy` import in `_qdrant_indexer.py` needs `# noqa: TC002`** — Used at runtime for `.tolist()`, not just type hints.
+
+**Open questions:**
+- Router priority for degraded scans still not fixed (Phase 3 carry-over)
+- Indian Kanoon API: still pending non-commercial approval
+- `anthropic` SDK minimum version for `cache_control` support
+- Global IDF for BM25: deferred optimization
+- Neo4j Knowledge Graph is Phase 6
+
+**Next steps:**
+1. Begin Phase 6 (Knowledge Graph) — read `docs/knowledge_graph_schema.md` first
+2. Or begin Phase 7 (Hallucination) if KG is deferred
+3. Consider fine-tuning pipeline for BGE-m3 (offline `scripts/` task)
