@@ -1,0 +1,27 @@
+settings:
+  input_dir: "data/enriched"
+  parsed_dir: "data/parsed"
+
+  # Model
+  model_name_or_path: "BAAI/bge-m3"
+  embedding_dim: 768
+  matryoshka_dim: 64
+  device: "cpu"
+  batch_size: 16
+  max_length: 8192
+
+  # Qdrant
+  qdrant_host: "localhost"
+  qdrant_port: 6333
+  chunks_collection: "legal_chunks"
+  quim_collection: "quim_questions"
+
+  # Redis
+  redis_url: "redis://localhost:6379/0"
+  redis_key_prefix: "parent:"
+
+  # Windowing
+  window_overlap_tokens: 128
+
+  # Behavior
+  skip_existing: true

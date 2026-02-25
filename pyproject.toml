@@ -33,6 +33,12 @@ chunking-ml = [
 chunking-llm = [
     "anthropic>=0.18",
 ]
+embedding = [
+    "qdrant-client>=1.9",
+    "redis[hiredis]>=5.0",
+    "torch>=2.0",
+    "transformers>=4.40",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
