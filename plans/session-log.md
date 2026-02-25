@@ -560,3 +560,45 @@
 1. Begin Phase 6 (Knowledge Graph) — read `docs/knowledge_graph_schema.md` first
 2. Or begin Phase 7 (Hallucination) if KG is deferred
 3. Consider fine-tuning pipeline for BGE-m3 (offline `scripts/` task)
+
+## Session: 2026-02-26 ~22:00
+**Phase:** Phase 6 — Knowledge Graph
+**What was built:**
+- Full `src/knowledge_graph/` module (13 source files, 26 files total including tests)
+- `_exceptions.py` — 7 exception classes under `KnowledgeGraphError`
+- `_models.py` — 8 Pydantic node models (Act, Section, SectionVersion, Judgment, Amendment, LegalConcept, Court, Judge), Relationship, ExtractedEntities, IntegrityCheck/Report, KGSettings/Config, KGResult
+- `_config.py` — YAML config loader (mirrors embedding pattern)
+- `_client.py` — Neo4jClient: lazy async driver, schema setup (8 constraints + 3 indexes), MERGE for all 8 node types, generic relationship MERGE, batch execution, parameterized read queries
+- `_extractors.py` — EntityExtractor: chunk-driven extraction from StatuteMetadata → Act/Section/SectionVersion/Amendment, JudgmentMetadata → Judgment/Court/Judge, definition chunks → LegalConcept
+- `_relationships.py` — RelationshipBuilder: all 15 relationship types from the schema doc
+- `_queries.py` — QueryBuilder: 8 reusable Cypher queries (point-in-time, amendment cascade, citation traversal, hierarchy navigation, temporal status, judgment relationships, find replacement, node exists)
+- `_integrity.py` — IntegrityChecker: 4 post-ingestion rules (section versions, repealed consistency, overrule hierarchy, version date overlap)
+- `pipeline.py` — KnowledgeGraphPipeline orchestrator
+- `run.py` + `__main__.py` — CLI with --source, --dry-run, --skip-integrity, --config
+- `configs/knowledge_graph.yaml` — default config
+- 225 tests across 10 test files, 8 integration tests
+- Cleaned up junk files (=0.7, nul, .playwright-mcp/), updated .gitignore
+- Committed v2 architecture docs and Phase 6 plan
+
+**What broke:**
+1. `"omit" in "omission"` → False! The word "omission" does NOT contain "omit" as a substring (it's "omis" + "sion"). Fixed `_amendment_rel_type` to check for "omis" as well.
+2. Ruff TC003 flagged `UUID` import in `_models.py` — needed `# noqa: TC003` since UUID is used as Pydantic field type (known gotcha).
+3. Ruff TC003 flagged `Path` import in test files — needed `# noqa: TC003` since Path is used at runtime in fixture bodies.
+
+**Decisions made:**
+- Chunk-driven entity extraction (not re-parsing raw text) — entities come from LegalChunk metadata fields
+- Cross-document "dangling" MERGE: if target node doesn't exist yet, MERGE creates a stub that gets enriched later
+- Section version ID = `{act_name}:{section_number}:{text_hash[:8]}` for human-readable uniqueness
+- Reverse relationship direction for OVERRULES/FOLLOWS/DISTINGUISHES: stored on the overruled judgment, but relationship arrow points from overruler → overruled
+- `_parse_section_ref` with common abbreviation expansion (IPC → Indian Penal Code, etc.)
+- Skip self-references in REFERENCES relationships
+
+**Open questions:**
+- Phase 7 (Retrieval) plan not yet created
+- Global IDF for BM25 still deferred
+- Neo4j Community Edition 5.x needed for integration testing (Docker)
+
+**Next steps:**
+1. Plan Phase 7 (Retrieval) — hybrid search, reranking, FLARE, graph-augmented retrieval
+2. Or plan Phase 8 (Hallucination Mitigation) — now that QueryBuilder exists as foundation
+3. Consider Phase 0 (Query Intelligence) — semantic cache, query router, HyDE

@@ -322,19 +322,19 @@ class QueryBuilder:
 
 **Dependencies:** All previous subtasks
 
-## Test Summary
+## Test Summary (ACTUAL — completed 2026-02-26)
 
-| Subtask | Tests |
-|---------|-------|
-| 1: Foundation | ~30 |
-| 2: Neo4jClient | ~35 |
-| 3: Entity Extractors | ~30 |
-| 4: Relationship Builder | ~25 |
-| 5: Query Builders | ~25 |
-| 6: Integrity Checker | ~15 |
-| 7: Pipeline + CLI + Integration | ~30 |
-| **Total Phase 6** | **~190** |
-| **Project total** | **~1,017** (827 + 190) |
+| Subtask | Estimated | Actual | Status |
+|---------|-----------|--------|--------|
+| 1: Foundation | ~30 | 64 | DONE |
+| 2: Neo4jClient | ~35 | 27 | DONE |
+| 3: Entity Extractors | ~30 | 34 | DONE |
+| 4: Relationship Builder | ~25 | 33 | DONE |
+| 5: Query Builders | ~25 | 26 | DONE |
+| 6: Integrity Checker | ~15 | 14 | DONE |
+| 7: Pipeline + CLI + Integration | ~30 | 27 | DONE |
+| **Total Phase 6** | **~190** | **225** | **DONE** |
+| **Project total** | **~1,017** | **1,052** | **ALL PASSING** |
 
 ## Acceptance Criteria
 
