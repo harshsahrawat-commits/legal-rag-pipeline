@@ -1,0 +1,11 @@
+settings:
+  input_dir: "data/enriched"
+
+  # Neo4j connection
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: "password"
+  neo4j_database: "neo4j"
+
+  # Batch size for MERGE operations per transaction
+  batch_size: 100
