@@ -602,3 +602,119 @@
 1. Plan Phase 7 (Retrieval) — hybrid search, reranking, FLARE, graph-augmented retrieval
 2. Or plan Phase 8 (Hallucination Mitigation) — now that QueryBuilder exists as foundation
 3. Consider Phase 0 (Query Intelligence) — semantic cache, query router, HyDE
+
+---
+
+## Session: 2026-02-26 (second session)
+**Phase:** Phase 7 — Retrieval (Subtasks 1–6 of 7)
+**What was built:**
+
+1. **Phase 7 plan** — Full implementation plan in `plans/phase-7-retrieval.md`: 7 subtasks, ~215 estimated tests.
+
+2. **Subtask 1 — Foundation (54 tests):**
+   - `src/retrieval/_exceptions.py` — 7 exception classes: RetrievalError, SearchError, RerankerError, RerankerNotAvailableError, ContextExpansionError, FLAREError, SearchNotAvailableError
+   - `src/retrieval/_models.py` — QueryRoute (StrEnum), RetrievalQuery, ScoredChunk, FusedChunk, ExpandedContext, RetrievalResult (with elapsed_ms property), RetrievalSettings (all search/fusion/FLARE params), RetrievalConfig
+   - `src/retrieval/_config.py` — load_retrieval_config() from YAML
+   - `configs/retrieval.yaml` — default config with all parameters
+
+3. **Subtask 2 — Searchers + BM25 vocab persistence (52 tests):**
+   - `src/retrieval/_searchers.py` — 4 searcher classes:
+     - DenseSearcher: Matryoshka 2-stage funnel (64-dim fast → 1000 → 768-dim full rescore → 100)
+     - SparseSearcher: BM25 sparse vector search via Qdrant
+     - QuIMSearcher: question embedding search, maps source_chunk_id back to parent chunk
+     - GraphSearcher: regex section reference extraction + QueryBuilder KG traversal, abbreviation expansion (IPC→Indian Penal Code etc.)
+   - `src/embedding/_sparse.py` — added save_vocabulary() + load_vocabulary() (additive, ~30 lines)
+   - 46 searcher tests + 6 BM25 vocab persistence tests
+
+4. **Subtask 3 — Reciprocal Rank Fusion (29 tests):**
+   - `src/retrieval/_fusion.py` — ReciprocalRankFusion: RRF score = sum(1/(k+rank)), deduplication, deterministic tie-breaking by chunk_id
+
+5. **Subtask 4 — Cross-Encoder Reranker (28 tests):**
+   - `src/retrieval/_reranker.py` — CrossEncoderReranker: lazy transformers import, batch inference, sigmoid scoring, caches torch module on self._torch for mock compatibility
+
+6. **Subtask 5 — Parent Document Expander (30 tests):**
+   - `src/retrieval/_expander.py` — ParentDocumentExpander: async Redis expansion, token budget (tiktoken cl100k_base), deduplication, settings flags for include_parent/include_headers
+
+7. **Subtask 6 — Engine + Pipeline + CLI (33 tests, IN PROGRESS):**
+   - `src/retrieval/_engine.py` — RetrievalEngine: orchestrates all components
+     - `retrieve(query)` — full pipeline: embed → search channels → fuse → rerank → expand
+     - `hybrid_search(text, top_k)` — lightweight for Phase 8 GenGround per-claim retrieval
+     - `_kg_direct_query()` — SIMPLE route, KG only
+     - `_prepare_query_vectors()` — computes embeddings/sparse if not provided
+     - `load_models()` — loads embedder, reranker, BM25 vocab (each isolated)
+     - Channel error isolation (one failure doesn't crash others)
+   - `src/retrieval/pipeline.py` — RetrievalPipeline: batch/interactive orchestrator
+     - `run(queries, queries_file, interactive, dry_run)` — supports all input modes
+     - `.engine` property exposes engine for Phase 8 reuse
+   - `src/retrieval/run.py` — CLI: --query, --queries-file, --interactive, --dry-run, --config, --console-log
+   - Tests: 15 engine + 12 pipeline + 6 CLI tests
+
+**Results:** 225 new Phase 7 tests + 1052 existing = 1277 total, lint clean
+**Subtasks 2-5 were built in parallel using 4 agent teams (worktree isolation)**
+
+**What broke:**
+1. Ruff TC003 on `Path` import in `_models.py` — Pydantic field type, needed `# noqa: TC003` (known gotcha)
+2. Ruff RUF100 on `# noqa: T201` for print statements — ruff doesn't have T201 enabled in this project, noqa was unused
+3. Ruff SIM105 on try/except/pass for engine.close() → use `contextlib.suppress(Exception)`
+4. `__main__.py` calls `main()` at import time → can't import in test without triggering argparse SystemExit. Fixed test to use importlib.util.find_spec instead.
+5. Ruff N817 on CamelCase import alias → just use full name
+
+**Decisions made:**
+1. **RetrievalEngine vs RetrievalPipeline split** — Engine handles single queries (reusable by Phase 8), Pipeline handles batch/interactive CLI. Phase 8 calls `engine.hybrid_search(claim)` directly.
+2. **Channel error isolation** — If Qdrant dense search fails, BM25 and QuIM still return results. Only if ALL channels fail does the engine return empty.
+3. **Reranker is optional** — If transformers not installed or model not loaded, skip reranking and use RRF scores. Truncate to rerank_top_k.
+4. **BM25 vocabulary persistence** — Added save/load to BM25SparseEncoder (Phase 5). Retrieval loads from `bm25_vocab_path` setting.
+5. **Matryoshka 2-stage funnel** — Stage 1 searches 64-dim "fast" vector for broad recall, Stage 2 rescore on 768-dim "full" vector filtered to Stage 1 IDs.
+6. **GraphSearcher regex extraction** — Parses "Section X of Y Act", "S. X IPC", "Sec X Act" patterns with abbreviation expansion for 8 common Indian acts.
+
+**Open questions:**
+- Subtask 7 (FLARE + Integration tests) still pending
+- Phase 7 not yet committed (waiting for Subtask 7)
+- `@pytest.mark.slow` on test_load_models — downloads real BGE models, takes 2+ min
+
+**Next steps:**
+1. Complete Subtask 7: FLARE active retrieval + integration tests (~20 tests)
+2. Run full test suite, commit Phase 7
+3. Update CLAUDE.md memory with Phase 7 learnings
+
+---
+
+## Session: 2026-02-26 (third session)
+**Phase:** Phase 7 — Retrieval (Subtask 7 of 7 — COMPLETE)
+**What was built:**
+
+1. **Subtask 7 — FLARE Active Retrieval + Integration Tests (35 tests):**
+   - `src/retrieval/_flare.py` — FLAREActiveRetriever:
+     - Segments retrieved context into token-bounded segments
+     - Asks Claude Haiku to assess confidence per segment (JSON array of floats)
+     - Generates follow-up queries for low-confidence segments
+     - Re-retrieves via `engine.hybrid_search()`, deduplicates, capped at `flare_max_retrievals`
+     - Graceful fallback on LLM errors (returns original chunks)
+     - Lazy `anthropic` import, `is_available` property
+   - Wired into `RetrievalEngine.retrieve()` — runs after expand step for ANALYTICAL queries only
+   - `tests/retrieval/test_flare.py` — 25 tests: availability, client init, segmentation, confidence parsing, follow-up parsing, active_retrieve (disabled, high-confidence, low-confidence, dedup, max cap, LLM error, empty), _scored_to_expanded helper
+   - `tests/retrieval/test_integration.py` — 10 tests: E2E for SIMPLE/STANDARD/COMPLEX/ANALYTICAL routes, FLARE with mock LLM, Phase 8 hybrid_search consumer, all-channels-fail error isolation, expand failure fallback, multi-query batch, query error isolation
+
+2. **Bug fix — `extract_section_references` import:**
+   - Renamed `_extract_section_references` → `extract_section_references` (public) in `_searchers.py`
+   - Fixed import in `_engine.py._kg_direct_query()` and all 7 test references
+   - Previously latent bug: SIMPLE route KG query would fail at runtime (masked by test mocking)
+
+**Results:** 1313 tests passing (255 Phase 7), lint clean, format clean
+**Phase 7: COMPLETE — all 7 subtasks done**
+
+**What broke:**
+1. Ruff F401 — unused `json` import in test_flare.py (removed by `--fix`)
+2. Ruff I001 — import block sorting in both new test files (auto-fixed)
+3. Ruff format — 9 files reformatted
+
+**Decisions made:**
+1. **FLARE uses two LLM calls** — one for confidence assessment, one for follow-up query generation. Both parse JSON responses with fallback defaults.
+2. **`_scored_to_expanded` helper** — converts ScoredChunk from re-retrieval into ExpandedContext, uses word count as rough token estimate.
+3. **Segment size = `flare_segment_tokens` words** — simple word-based segmentation (not tiktoken) since FLARE just needs rough segments.
+4. **FLARE is opt-in** — `is_available` checks both `flare_enabled` setting AND anthropic importability. Only triggers for ANALYTICAL route.
+
+**Next steps:**
+1. Commit Phase 7 (all files)
+2. Update CLAUDE.md memory with Phase 7 learnings
+3. Plan Phase 8 (Hallucination Mitigation) or Phase 0 (Query Intelligence)

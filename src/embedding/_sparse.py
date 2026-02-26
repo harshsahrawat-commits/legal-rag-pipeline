@@ -6,11 +6,14 @@ Uses simple word-level tokenization suitable for legal text.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from src.embedding._models import SparseVector
 
 
@@ -109,6 +112,58 @@ class BM25SparseEncoder:
                 values.append(score)
 
         return SparseVector(indices=indices, values=values)
+
+    def save_vocabulary(self, path: Path) -> None:
+        """Save vocabulary, IDF, and avg_dl to a JSON file.
+
+        Args:
+            path: Destination file path (will be created/overwritten).
+
+        Raises:
+            RuntimeError: If build_vocabulary() has not been called.
+        """
+        if not self._built:
+            msg = "build_vocabulary() must be called before save_vocabulary()"
+            raise RuntimeError(msg)
+
+        data = {
+            "vocab": self._vocab,
+            "idf": self._idf,
+            "avg_dl": self._avg_dl,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    @classmethod
+    def load_vocabulary(cls, path: Path) -> BM25SparseEncoder:
+        """Load a pre-built vocabulary from a JSON file.
+
+        Args:
+            path: Path to a JSON file previously written by save_vocabulary().
+
+        Returns:
+            A fully initialised BM25SparseEncoder ready for encode().
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+            ValueError: If the file content is invalid.
+        """
+        if not path.exists():
+            msg = f"BM25 vocabulary file not found: {path}"
+            raise FileNotFoundError(msg)
+
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            msg = f"Invalid BM25 vocabulary file: {path}"
+            raise ValueError(msg) from exc
+
+        instance = cls()
+        instance._vocab = raw.get("vocab", {})
+        instance._idf = raw.get("idf", {})
+        instance._avg_dl = float(raw.get("avg_dl", 0.0))
+        instance._built = True
+        return instance
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:

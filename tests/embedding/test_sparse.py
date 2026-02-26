@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from src.embedding._models import SparseVector
 from src.embedding._sparse import BM25SparseEncoder
@@ -124,3 +129,64 @@ class TestEncode:
         enc.build_vocabulary(["zebra apple mango banana"])
         result = enc.encode("zebra apple mango banana")
         assert result.indices == sorted(result.indices)
+
+
+class TestSaveLoadVocabulary:
+    """Tests for BM25 vocabulary persistence (save/load roundtrip)."""
+
+    def test_roundtrip_produces_same_encode(self, tmp_path: Path) -> None:
+        corpus = [
+            "section 420 indian penal code cheating",
+            "section 302 murder punishment",
+            "contract agreement breach remedy",
+        ]
+        enc = BM25SparseEncoder()
+        enc.build_vocabulary(corpus)
+        original = enc.encode("section 420 cheating")
+
+        vocab_path = tmp_path / "bm25_vocab.json"
+        enc.save_vocabulary(vocab_path)
+
+        loaded = BM25SparseEncoder.load_vocabulary(vocab_path)
+        restored = loaded.encode("section 420 cheating")
+
+        assert original.indices == restored.indices
+        assert original.values == pytest.approx(restored.values)
+
+    def test_load_nonexistent_file_raises(self, tmp_path: Path) -> None:
+        missing = tmp_path / "nonexistent.json"
+        with pytest.raises(FileNotFoundError, match="not found"):
+            BM25SparseEncoder.load_vocabulary(missing)
+
+    def test_save_before_build_raises(self, tmp_path: Path) -> None:
+        enc = BM25SparseEncoder()
+        with pytest.raises(RuntimeError, match="build_vocabulary"):
+            enc.save_vocabulary(tmp_path / "vocab.json")
+
+    def test_loaded_encoder_can_encode_new_text(self, tmp_path: Path) -> None:
+        enc = BM25SparseEncoder()
+        enc.build_vocabulary(["hello world foo bar"])
+        vocab_path = tmp_path / "vocab.json"
+        enc.save_vocabulary(vocab_path)
+
+        loaded = BM25SparseEncoder.load_vocabulary(vocab_path)
+        result = loaded.encode("hello foo baz")
+        # "baz" is OOV, but "hello" and "foo" should produce indices
+        assert len(result.indices) == 2
+        assert all(v > 0 for v in result.values)
+
+    def test_loaded_vocab_size_matches(self, tmp_path: Path) -> None:
+        enc = BM25SparseEncoder()
+        enc.build_vocabulary(["alpha beta gamma delta"])
+        vocab_path = tmp_path / "vocab.json"
+        enc.save_vocabulary(vocab_path)
+
+        loaded = BM25SparseEncoder.load_vocabulary(vocab_path)
+        assert loaded.vocab_size == enc.vocab_size
+
+    def test_save_creates_parent_dirs(self, tmp_path: Path) -> None:
+        enc = BM25SparseEncoder()
+        enc.build_vocabulary(["a b c"])
+        nested = tmp_path / "a" / "b" / "vocab.json"
+        enc.save_vocabulary(nested)
+        assert nested.exists()

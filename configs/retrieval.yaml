@@ -1,0 +1,50 @@
+settings:
+  # Qdrant
+  qdrant_host: "localhost"
+  qdrant_port: 6333
+  chunks_collection: "legal_chunks"
+  quim_collection: "quim_questions"
+
+  # Models
+  embedding_model: "BAAI/bge-m3"
+  embedding_dim: 768
+  matryoshka_dim: 64
+  reranker_model: "BAAI/bge-reranker-v2-m3"
+  device: "cpu"
+
+  # Redis
+  redis_url: "redis://localhost:6379/0"
+  redis_key_prefix: "parent:"
+
+  # Neo4j
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: "password"
+  neo4j_database: "neo4j"
+
+  # Search parameters
+  dense_fast_top_k: 1000
+  dense_full_top_k: 100
+  bm25_top_k: 100
+  quim_top_k: 50
+  graph_max_hops: 2
+  graph_max_results: 50
+
+  # Fusion
+  rrf_k: 60
+  fused_top_k: 150
+
+  # Reranking
+  rerank_top_k: 20
+  rerank_batch_size: 32
+
+  # Context expansion
+  max_context_tokens: 30000
+  include_judgment_headers: true
+  include_parent_chunks: true
+
+  # FLARE
+  flare_enabled: true
+  flare_segment_tokens: 300
+  flare_confidence_threshold: 0.5
+  flare_max_retrievals: 5
