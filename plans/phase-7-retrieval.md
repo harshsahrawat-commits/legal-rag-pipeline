@@ -224,17 +224,19 @@ Subtask 1: Foundation
 
 Subtasks 2-5 can be built in parallel after Subtask 1.
 
-## Test Summary
+## Test Summary (Actual)
 
 | Subtask | New Tests | Cumulative (Phase 7) | Project Total |
 |---------|-----------|---------------------|---------------|
-| 1: Foundation | ~35 | 35 | 1087 |
-| 2: Searchers + BM25 vocab | ~50 | 85 | 1137 |
-| 3: RRF Fusion | ~20 | 105 | 1157 |
-| 4: Reranker | ~25 | 130 | 1182 |
-| 5: Expander | ~25 | 155 | 1207 |
-| 6: Engine + Pipeline + CLI | ~40 | 195 | 1247 |
-| 7: FLARE + Integration | ~20 | 215 | 1267 |
+| 1: Foundation | 54 | 54 | 1106 |
+| 2: Searchers + BM25 vocab | 52 | 106 | 1158 |
+| 3: RRF Fusion | 29 | 135 | 1187 |
+| 4: Reranker | 28 | 163 | 1215 |
+| 5: Expander | 30 | 193 | 1245 |
+| 6: Engine + Pipeline + CLI | 27 | 220 | 1272 |
+| 7: FLARE + Integration | 35 | 255 | 1313 |
+
+**All 7 subtasks COMPLETE. Committed `27601e1`, pushed.**
 
 ## Acceptance Criteria
 

@@ -701,7 +701,7 @@
    - Previously latent bug: SIMPLE route KG query would fail at runtime (masked by test mocking)
 
 **Results:** 1313 tests passing (255 Phase 7), lint clean, format clean
-**Phase 7: COMPLETE — all 7 subtasks done**
+**Phase 7: COMPLETE — all 7 subtasks done, committed `27601e1`, pushed**
 
 **What broke:**
 1. Ruff F401 — unused `json` import in test_flare.py (removed by `--fix`)
@@ -715,6 +715,5 @@
 4. **FLARE is opt-in** — `is_available` checks both `flare_enabled` setting AND anthropic importability. Only triggers for ANALYTICAL route.
 
 **Next steps:**
-1. Commit Phase 7 (all files)
-2. Update CLAUDE.md memory with Phase 7 learnings
-3. Plan Phase 8 (Hallucination Mitigation) or Phase 0 (Query Intelligence)
+1. Plan Phase 8 (Hallucination Mitigation) or Phase 0 (Query Intelligence)
+2. Consider Phase 9 (Evaluation) planning alongside Phase 8
