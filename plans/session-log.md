@@ -1,5 +1,29 @@
 # Session Log
 
+## Session: 2026-02-27 15:30
+**Phase:** Phase 0 — Query Intelligence Layer
+**What was built:**
+- Full `src/query/` module (10 source files, 23 files total):
+  - `_exceptions.py` — 5 exception types (QueryIntelligenceError, CacheError, RouterError, HyDEError, EmbeddingError)
+  - `_models.py` — 7 Pydantic models (CacheEntry, CacheResult, RouterResult, HyDEResult, QueryIntelligenceResult, QuerySettings, QueryConfig)
+  - `_config.py` — YAML config loader for `configs/query.yaml`
+  - `_cache.py` — SemanticQueryCache (Qdrant vector similarity + Redis response store, act-based invalidation, batch deletes)
+  - `_router.py` — AdaptiveQueryRouter (regex-based 4-route classifier: SIMPLE/STANDARD/COMPLEX/ANALYTICAL)
+  - `_hyde.py` — SelectiveHyDE (Claude Haiku hypothetical answer generation for COMPLEX/ANALYTICAL routes)
+  - `pipeline.py` — QueryIntelligenceLayer orchestrator (embed → cache → route → HyDE → RetrievalQuery)
+  - `run.py` + `__main__.py` — CLI with --query, --classify-only, --dry-run, --cache-stats, --invalidate-act
+- `configs/query.yaml` — default settings
+- `tests/query/` — 263 tests across 10 test files (conftest + 9 test modules)
+- `plans/phase-0-query-intelligence.md` — implementation plan
+**Agent Teams used:** cache-builder + router-builder ran in parallel worktrees while lead built HyDE
+**Quality audit findings fixed:** Critical tuple-unpacking bug in run.py, tightened type annotations, batch delete optimization
+**Test count:** 1757 total (1494 existing + 263 new), all passing, lint clean
+**Commit:** `7a60a3c`
+**Open questions:** None
+**Next steps:** Phase 9 (Evaluation) — the last remaining phase
+
+---
+
 ## Session: 2026-02-22 11:55
 **Phase:** Phase 1 — Agentic Acquisition
 **What was built:**
