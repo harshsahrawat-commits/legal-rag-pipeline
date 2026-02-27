@@ -120,6 +120,15 @@ QueryIntelligenceLayer.process(query_text)
 
 ## Subtask Breakdown
 
+**STATUS: ALL SUBTASKS COMPLETE (2026-02-27)**
+- Subtask 1: DONE (40 tests) — Foundation
+- Subtask 2: DONE (62 tests) — Cache (built by cache-builder agent)
+- Subtask 3: DONE (68 tests) — Router (built by router-builder agent)
+- Subtask 4: DONE (28 tests) — HyDE
+- Subtask 5: DONE (65 tests) — Pipeline + CLI + Integration
+- Quality audit: DONE — 1 critical bug fixed (tuple unpacking in run.py), batch delete optimization, type annotation tightening
+- **Total: 263 tests, 1757 project-wide, all passing**
+
 ### Subtask 1: Foundation (models, config, exceptions) — SEQUENTIAL FIRST
 **Estimated tests:** ~50
 

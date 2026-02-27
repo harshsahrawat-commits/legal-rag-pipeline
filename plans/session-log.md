@@ -15,12 +15,22 @@
 - `configs/query.yaml` — default settings
 - `tests/query/` — 263 tests across 10 test files (conftest + 9 test modules)
 - `plans/phase-0-query-intelligence.md` — implementation plan
-**Agent Teams used:** cache-builder + router-builder ran in parallel worktrees while lead built HyDE
+**Agent Teams used:** cache-builder + router-builder ran in parallel worktrees while lead built HyDE; legal-domain-expert reviewed router patterns in background
+**What broke:**
+- `run.py:124` — `layer.process()` returns a tuple but was assigned to single variable. Crashed full CLI path. Caught by quality-auditor agent, not by tests (no test for full processing path). Fixed to `qi_result, _rq = ...` and added test.
+- `invalidate_for_act()` deleted Qdrant points one-at-a-time instead of batch. Fixed to collect IDs per scroll page and issue single batch delete. Required updating test assertion from `call_count == 2` to `call_count == 1`.
+- `pipeline.py` had `Any` return types on `_check_cache` and `_maybe_hyde` where concrete types (`CacheResult`, `HyDEResult`, `QueryRoute`) were always returned. Tightened annotations.
+**Decisions made:**
+- `QueryRoute` stays in `src/retrieval/_models.py` — imported by Phase 0, not redefined
+- All external deps (qdrant_client, redis, anthropic) lazy-imported — module loads without them
+- Cache miss is safe default — any failure returns `CacheResult(hit=False)`
+- HyDE replaces vector search embedding only — BM25 still uses original query text
+- Agent Teams with worktree isolation for parallel subtasks — files ended up in main dir (worktrees prunable), but no conflicts since files don't overlap
 **Quality audit findings fixed:** Critical tuple-unpacking bug in run.py, tightened type annotations, batch delete optimization
 **Test count:** 1757 total (1494 existing + 263 new), all passing, lint clean
 **Commit:** `7a60a3c`
 **Open questions:** None
-**Next steps:** Phase 9 (Evaluation) — the last remaining phase
+**Next steps:** Phase 9 (Evaluation) — the last remaining phase. Legal-domain-expert provided extensive router improvement recommendations saved to `memory/router-improvements.md` (missing SIMPLE patterns for bare citations, Hindi "Dhara", Article lookups; missing ANALYTICAL/COMPLEX signals; temporal trap for IPC→BNS transition).
 
 ---
 
