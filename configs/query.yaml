@@ -1,0 +1,30 @@
+settings:
+  # Semantic Query Cache
+  cache_enabled: true
+  cache_similarity_threshold: 0.92
+  cache_ttl_seconds: 86400        # 24 hours
+  cache_short_ttl_seconds: 3600   # 1 hour for rapidly-changing areas
+  cache_collection: "query_cache"
+  cache_redis_prefix: "qcache:"
+
+  # Adaptive Query Router
+  router_version: "v1_rule_based"
+
+  # Selective HyDE
+  hyde_enabled: true
+  hyde_model: "claude-haiku"
+  hyde_max_tokens: 200
+  hyde_routes:
+    - "complex"
+    - "analytical"
+
+  # Embedding model (same as Phase 7)
+  embedding_model: "BAAI/bge-m3"
+  embedding_dim: 768
+  matryoshka_dim: 64
+  device: "cpu"
+
+  # External services
+  qdrant_host: "localhost"
+  qdrant_port: 6333
+  redis_url: "redis://localhost:6379/0"
