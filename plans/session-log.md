@@ -1,5 +1,46 @@
 # Session Log
 
+## Session: 2026-02-28 22:30
+**Phase:** Post-pipeline — LLM provider abstraction
+**What was built:**
+- `src/utils/_llm_client.py` (~390 lines) — Full LLM provider abstraction layer:
+  - Pydantic models: `ProviderConfig`, `LLMConfig`, `LLMMessage`, `LLMResponse`
+  - `BaseLLMProvider` ABC with sync `complete()` and async `acomplete()`
+  - `AnthropicProvider` — native anthropic SDK, preserves prompt caching (`cache_control` in system messages)
+  - `OllamaProvider` — httpx to `/v1/chat/completions`, Ollama-specific `num_ctx` via options
+  - `NvidiaProvider` — httpx with Bearer auth, handles Ultra `reasoning_content` fallback
+  - `get_llm_provider("component")` factory — reads `configs/llm.yaml` routing, caches providers per component
+  - `get_langchain_llm("ragas")` — returns ChatAnthropic or ChatOpenAI based on routing config
+  - `load_llm_config()` — YAML config loader with caching and graceful fallback to defaults
+  - `clear_provider_cache()` — for test isolation
+- `src/utils/_exceptions.py` — Added `LLMError`, `LLMNotAvailableError`, `LLMCallError`
+- `src/utils/__init__.py` — Added all new exports (11 symbols)
+- `tests/utils/test_llm_client.py` — 68 tests across 9 test classes:
+  - TestPydanticModels (6), TestLoadLLMConfig (5), TestAnthropicProvider (13)
+  - TestOllamaProvider (10), TestNvidiaProvider (7), TestOpenAICompatibleBase (3)
+  - TestGetLLMProvider (10), TestGetLangchainLLM (7), TestFactoryToProviderFlow (2)
+**What broke:**
+- `importlib.util.find_spec()` raises `ValueError` when mocked module has `__spec__=None`. Fix: wrap in `try/except (ValueError, ModuleNotFoundError)`.
+- `asyncio.get_event_loop()` removed in Python 3.14. Fix: use `async def` test functions with pytest-asyncio `asyncio_mode="auto"`.
+- Ruff F401 flags `import anthropic` inside `is_available` as "imported but unused". Fix: use `importlib.util.find_spec("anthropic")` instead.
+**Decisions made:**
+- **Single shared `_OpenAICompatibleProvider` base** for Ollama and NVIDIA — same OpenAI chat format, just different URLs/auth. Avoids code duplication. Ollama adds `num_ctx` via options override.
+- **httpx for HTTP providers** (not `openai` package) — already a transitive dep, no new dependency, full control over response parsing.
+- **System messages as separate parameter** — Anthropic takes `system` natively, OpenAI-compat prepends as role="system". `cache_control` preserved for Anthropic, silently stripped for others.
+- **Config caching** — `load_llm_config()` caches when using default path, skips cache for explicit paths. Provider instances cached per component name.
+- **Graceful fallback** — missing `configs/llm.yaml` returns empty config, factory defaults to Anthropic with `claude-haiku-4-5-20251001`.
+- **Consumer rewiring deferred to next session** — abstraction is solid with 68 tests, consumers can be rewired independently.
+**Open questions:**
+- None for the abstraction itself. Ready for consumer rewiring.
+**Next steps:**
+1. Rewire 7 consumer modules from direct `anthropic` to `get_llm_provider()`:
+   - `src/query/_hyde.py` (sync), `src/chunking/chunkers/_proposition.py` (sync)
+   - `src/enrichment/enrichers/_contextual.py` (async+cache), `_quim.py` (async+cache)
+   - `src/retrieval/_flare.py` (async, hardcoded model), `src/hallucination/_genground_refiner.py` (async+temp)
+   - `src/evaluation/_ragas_evaluator.py` (LangChain)
+2. Run Ollama live smoke test — call `get_llm_provider("hyde").complete(...)` against local Qwen3 14B
+3. Push accumulated commits (branch is 1 commit ahead + this session's work)
+
 ## Session: 2026-02-28 19:00
 **Phase:** Post-pipeline — Infrastructure, data sourcing, LLM provider setup
 **What was built:**

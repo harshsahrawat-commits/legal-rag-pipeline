@@ -11,3 +11,15 @@ class ConfigurationError(LegalRAGError):
 
 class ValidationError(LegalRAGError):
     """Data validation failed."""
+
+
+class LLMError(LegalRAGError):
+    """Base exception for LLM provider errors."""
+
+
+class LLMNotAvailableError(LLMError):
+    """Required LLM dependency not installed or provider unreachable."""
+
+
+class LLMCallError(LLMError):
+    """An LLM API call failed."""
