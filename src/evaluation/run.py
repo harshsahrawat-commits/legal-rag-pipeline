@@ -114,6 +114,37 @@ async def _run(args: argparse.Namespace) -> int:
         _log.info("dry_run_complete")
         return 0
 
+    # Human worksheet generation
+    if args.human_generate:
+        if not args.queries:
+            _log.error("human_generate_requires_queries")
+            return 1
+
+        from src.evaluation._human_harness import HumanEvalHarness
+
+        loader = TestDatasetLoader(settings)
+        dataset = loader.load(args.queries)
+        inputs = loader.to_evaluation_inputs(dataset)
+
+        harness = HumanEvalHarness(settings)
+        worksheets = harness.generate_worksheets(inputs, Path(settings.worksheets_dir))
+        _log.info("worksheets_generated", count=len(worksheets))
+        return 0
+
+    # Human scoresheet import
+    if args.human_import:
+        from src.evaluation._human_harness import HumanEvalHarness
+
+        harness = HumanEvalHarness(settings)
+        aggregate = harness.import_scoresheets(Path(settings.scoresheets_dir))
+        _log.info(
+            "scoresheets_imported",
+            total_evaluations=aggregate.total_evaluations,
+            avg_accuracy=aggregate.avg_accuracy,
+            accuracy_pass_rate=aggregate.accuracy_pass_rate,
+        )
+        return 0
+
     # Batch evaluation mode
     if args.queries:
         from src.evaluation.pipeline import EvaluationPipeline
@@ -127,6 +158,14 @@ async def _run(args: argparse.Namespace) -> int:
 
         pipeline = EvaluationPipeline(settings)
         result = await pipeline.evaluate(inputs)
+
+        # Generate report if --report flag is set
+        if args.report:
+            from src.evaluation._report import EvaluationReporter
+
+            reporter = EvaluationReporter(settings)
+            report_path = reporter.save(result)
+            _log.info("report_saved", path=str(report_path))
 
         _log.info(
             "evaluation_complete",
