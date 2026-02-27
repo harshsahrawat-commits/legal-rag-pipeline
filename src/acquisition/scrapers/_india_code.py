@@ -26,7 +26,7 @@ _log = get_logger(__name__)
 _CENTRAL_ACTS_HANDLE = "123456789/1362"
 _ITEMS_PER_PAGE = 100
 _HANDLE_RE = re.compile(r"/handle/123456789/(\d+)")
-_BITSTREAM_PDF_RE = re.compile(r"/bitstream/123456789/\d+/1/.+\.pdf", re.IGNORECASE)
+_BITSTREAM_PDF_RE = re.compile(r"/bitstream/123456789/\d+/\d+/.+\.pdf", re.IGNORECASE)
 
 
 class _BrowseEntry(BaseModel):

@@ -1,5 +1,41 @@
 # Session Log
 
+## Session: 2026-02-28 19:00
+**Phase:** Post-pipeline — Infrastructure, data sourcing, LLM provider setup
+**What was built:**
+- Fixed India Code scraper bitstream regex: `/1/` → `/\d+/` to match older acts using sequence 3/5
+- Ran first live scrape test: 5 Central Acts downloaded successfully (0 errors, 0 flags after fix)
+- Installed Ollama v0.17.4 (Windows native via winget), pulled qwen3:14b (9.3 GB) + llama3.1:8b (4.9 GB)
+- Tested Qwen3 14B on RTX 5060 Ti: 40 tok/s, 11.6 GB VRAM, correct legal answers + clean JSON output
+- Set up NVIDIA NIM API: key verified, nemotron-super-49b + nemotron-ultra-253b both working
+- Created `configs/llm.yaml` — provider routing config (Ollama primary, NVIDIA fallback)
+- Created `.env` with NVIDIA API key (gitignored)
+- Set persistent Windows env vars: OLLAMA_KV_CACHE_TYPE, OLLAMA_FLASH_ATTENTION, OLLAMA_KEEP_ALIVE, NVIDIA_API_KEY
+- Set up `/session-start` and `/session-end` skills for Flowkart, Legal_RAG, agenticworkflows, Pixel_office
+- Created `plans/session-log.md` + auto-memory MEMORY.md scaffolding for all 4 projects
+- Generated research reports: Ollama model comparison + NVIDIA NIM API catalog
+**What broke:**
+- Bitstream regex `/bitstream/123456789/\d+/1/` missed older acts — DSpace uses sequence 3 (English) and 5 (Hindi) for pre-2006 acts. Fixed to `/\d+/`.
+- `format: "json"` in Ollama generate API returns empty `{}` for Qwen3. Use chat API with instruction-based JSON instead.
+- Windows `curl` SSL error (CRYPT_E_NO_REVOCATION_CHECK) connecting to NVIDIA API. Must use Python `urllib`/`httpx` instead.
+- NVIDIA Ultra 253B returns response in `reasoning_content` field (not `content` which is `null`). Provider abstraction must check both.
+**Decisions made:**
+- **LLM strategy: Ollama primary + NVIDIA NIM fallback** — zero API cost for bulk tasks (enrichment, QuIM, HyDE), cloud 70B+ models for complex reasoning (answer gen, RAGAS eval)
+- **Qwen3 14B as primary model** — best balance of quality/speed/VRAM for 16GB card. /no_think mode for fast enrichment, /think for reasoning.
+- **Skills > Agents for session management** — compared /session-start+end vs session-chronicler+distiller agents. Skills route knowledge to right place (session-log, MEMORY.md, CLAUDE.md, docs/) vs agents dump to flat files. Deployed skills to all 4 other projects.
+- **India Code has 36 state/UT collections** — not just Central Acts. Future expansion possible with same scraper architecture.
+- **No API key was ever configured** — all 7 LLM-dependent components (enrichment, QuIM, HyDE, FLARE, GenGround, RAGAS, proposition chunker) have only been tested with mocks. Provider abstraction is the critical next step.
+**Open questions:**
+- Indian Kanoon API approval still pending (second email sent)
+- How many of the 848 Central Acts are missing PDFs after the regex fix? Need full scrape to find out.
+- Should we add a dedicated answer generation component (missing glue between retrieval and hallucination)?
+- phi4-reasoning:14b not yet pulled — do we need it or is Qwen3 sufficient for all tasks?
+**Next steps:**
+1. Build provider abstraction layer (`src/utils/_llm_client.py`) — OllamaProvider, NvidiaProvider, AnthropicProvider
+2. Rewire all 7 pipeline components from `anthropic.AsyncAnthropic()` to new `LLMClient`
+3. Run full 848-act India Code scrape
+4. Run Phase 2 (parsing) on scraped acts — first real end-to-end data flow
+
 ## Session: 2026-02-27 15:30
 **Phase:** Phase 0 — Query Intelligence Layer
 **What was built:**

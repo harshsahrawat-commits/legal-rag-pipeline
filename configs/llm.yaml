@@ -1,0 +1,80 @@
+# LLM Provider Configuration
+# Controls which model handles each pipeline component
+
+providers:
+  ollama:
+    base_url: http://localhost:11434
+    default_model: qwen3:14b
+    timeout_seconds: 120
+    # Performance settings applied via Ollama env vars:
+    #   OLLAMA_KV_CACHE_TYPE=q8_0
+    #   OLLAMA_FLASH_ATTENTION=1
+    #   OLLAMA_KEEP_ALIVE=60m
+
+  nvidia:
+    base_url: https://integrate.api.nvidia.com/v1
+    default_model: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    timeout_seconds: 60
+    # API key loaded from NVIDIA_API_KEY env var
+
+  anthropic:
+    default_model: claude-haiku-4-5-20251001
+    timeout_seconds: 60
+    # API key loaded from ANTHROPIC_API_KEY env var
+
+# Which provider each pipeline component uses
+routing:
+  # Phase 3: Chunking
+  proposition_chunker: ollama
+
+  # Phase 4: Enrichment
+  contextual_retrieval: ollama
+  quim_rag: ollama
+
+  # Phase 0: Query Intelligence
+  hyde: ollama
+
+  # Phase 7: Retrieval
+  flare: ollama
+
+  # Phase 8: Hallucination
+  genground: ollama
+
+  # Phase 9: Evaluation
+  ragas: nvidia
+
+  # Future: Answer generation
+  answer_generation: nvidia
+
+# Model overrides per component (uses provider default if not set)
+model_overrides:
+  # Use /no_think mode for fast enrichment tasks
+  contextual_retrieval: qwen3:14b
+  quim_rag: qwen3:14b
+  hyde: qwen3:14b
+
+  # Use reasoning model for verification tasks
+  flare: qwen3:14b
+  genground: qwen3:14b
+
+  # Use large NVIDIA models for complex reasoning
+  answer_generation: nvidia/llama-3.1-nemotron-ultra-253b-v1
+  ragas: nvidia/llama-3.3-nemotron-super-49b-v1.5
+
+# Ollama-specific options per component
+ollama_options:
+  contextual_retrieval:
+    temperature: 0.3
+    num_ctx: 8192
+  quim_rag:
+    temperature: 0.5
+    num_ctx: 4096
+  hyde:
+    temperature: 0.7
+    num_ctx: 4096
+  flare:
+    temperature: 0.1
+    num_ctx: 8192
+  genground:
+    temperature: 0.1
+    num_ctx: 8192
