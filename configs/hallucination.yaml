@@ -1,0 +1,32 @@
+settings:
+  # Neo4j (for citation verification & temporal checks)
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: "password"
+  neo4j_database: "neo4j"
+
+  # LLM (for GenGround)
+  llm_model: "claude-haiku-4-5-20251001"
+  llm_max_tokens: 4096
+  llm_temperature: 0.0
+
+  # GenGround
+  genground_enabled: true
+  genground_simple_route_only_audit: true
+  genground_max_claims: 50
+  genground_re_retrieval_top_k: 5
+
+  # Confidence scoring weights (must sum to 1.0)
+  weight_retrieval_relevance: 0.25
+  weight_citation_verification: 0.20
+  weight_source_authority: 0.20
+  weight_chunk_agreement: 0.15
+  weight_source_recency: 0.10
+  weight_query_specificity: 0.10
+
+  # Thresholds
+  confidence_warning_threshold: 0.6
+  confidence_critical_threshold: 0.3
+
+  # Temporal
+  ipc_repeal_date: "2024-07-01"
