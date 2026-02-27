@@ -37,6 +37,11 @@ _REPEALED_ACTS: dict[str, dict[str, str]] = {
 }
 
 
+def get_repealed_acts() -> dict[str, dict[str, str]]:
+    """Public accessor for the repealed acts mapping."""
+    return dict(_REPEALED_ACTS)
+
+
 class TemporalChecker:
     """Check whether referenced legal provisions are temporally valid."""
 

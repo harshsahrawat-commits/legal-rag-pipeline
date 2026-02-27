@@ -1,0 +1,36 @@
+settings:
+  # RAGAS
+  ragas_enabled: true
+  ragas_llm_model: "claude-haiku-4-5-20251001"
+  ragas_batch_size: 10
+
+  # Legal metrics
+  legal_metrics_enabled: true
+
+  # Latency targets (ms)
+  latency_simple_ms: 200.0
+  latency_standard_ms: 800.0
+  latency_complex_ms: 2000.0
+  latency_analytical_ms: 5000.0
+
+  # QI metrics targets
+  cache_hit_target: 0.30
+  routing_accuracy_target: 0.90
+  genground_target: 0.95
+  parent_utilization_target: 0.80
+  flare_min: 0.05
+  flare_max: 0.10
+
+  # Human evaluation
+  human_eval_enabled: false
+  accuracy_pass_threshold: 4
+  accuracy_pass_rate_target: 0.85
+
+  # Test dataset
+  test_queries_path: "data/eval/test_queries.json"
+  worksheets_dir: "data/eval/worksheets"
+  scoresheets_dir: "data/eval/scoresheets"
+
+  # Report
+  report_format: "json"
+  report_output_path: "data/eval/report.json"
