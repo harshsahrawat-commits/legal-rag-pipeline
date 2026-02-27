@@ -60,7 +60,7 @@ python -m src.chunking.run --source="Indian Kanoon" --dry-run
 python -m src.enrichment.run --stage=contextual_retrieval --dry-run
 python -m src.enrichment.run --stage=quim_rag --dry-run
 python -m src.embedding.run --index
-python -m src.evaluation.ragas_eval --queries=data/eval/test_queries.json
+python -m src.evaluation --queries data/eval/test_queries.json --skip-ragas
 
 # Infrastructure
 docker compose up -d qdrant neo4j redis  # Start local services
