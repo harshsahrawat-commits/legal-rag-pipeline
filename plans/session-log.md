@@ -1,5 +1,36 @@
 # Session Log
 
+## Session: 2026-02-28 23:45
+**Phase:** Post-pipeline — LLM consumer rewiring + live smoke test
+**What was built:**
+- Rewired 7 LLM consumer modules from direct `anthropic` SDK to `get_llm_provider()` abstraction:
+  - `src/query/_hyde.py` (sync complete), `src/chunking/chunkers/_proposition.py` (sync)
+  - `src/enrichment/enrichers/_contextual.py` (async+cache), `_quim.py` (async+cache)
+  - `src/retrieval/_flare.py` (async), `src/hallucination/_genground_refiner.py` (async+temp)
+  - `src/evaluation/_ragas_evaluator.py` (LangChain via `get_langchain_llm`)
+- Updated 12 test files to use new provider mocking patterns (LLMResponse, mock providers)
+- `scripts/smoke_test_llm.py` — Live smoke test script exercising 4 components against real Ollama:
+  1. Provider factory + basic completion
+  2. SelectiveHyDE (sync, COMPLEX route)
+  3. ContextualRetrievalEnricher (async, prompt caching)
+  4. GenGroundRefiner (async, JSON parsing)
+- Fixed Qwen3 `reasoning` field in `_parse_response` — third fallback after `content` and `reasoning_content`
+**What broke:**
+- Qwen3 14B returns thinking in `reasoning` field (not `reasoning_content` like NVIDIA Ultra). Without system prompt, all tokens go to thinking → `content` is empty string. Fix: added `msg.get("reasoning")` fallback.
+- Patching `src.evaluation._ragas_evaluator.get_langchain_llm` failed because it's imported locally inside `_init_llm()`. Fix: patch at source `src.utils._llm_client.get_langchain_llm`.
+- Cascading `_client` → `_provider` failures in 5 integration/pipeline test files beyond the 7 direct unit test files. Found iteratively via full test suite runs.
+**Decisions made:**
+- Mock pattern: `_make_mock_provider()` returns MagicMock with `acomplete=AsyncMock(return_value=LLMResponse(...))` — consistent across all test files.
+- Error mapping: `LLMNotAvailableError` from factory → module-specific errors (GenGroundNotAvailableError, ChunkerNotAvailableError, etc.)
+- Smoke test uses `/no_think` suffix to disable Qwen3 thinking mode for faster, cleaner responses.
+**Open questions:**
+- None. All 10 phases + LLM abstraction + consumer rewiring complete.
+**Next steps:**
+1. Full 848-act India Code scrape (live data ingestion)
+2. End-to-end pipeline run on scraped data (parsing → chunking → enrichment → embedding → KG)
+3. Explore Anthropic API key setup for production-quality enrichment/evaluation
+4. RAGAS benchmark with real data
+
 ## Session: 2026-02-28 22:30
 **Phase:** Post-pipeline — LLM provider abstraction
 **What was built:**

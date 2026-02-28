@@ -11,7 +11,7 @@ A production-grade ingestion pipeline for Indian legal documents (statutes, judg
 - **Vector DB:** Qdrant (self-hosted, hybrid BM25+vector search)
 - **Knowledge Graph:** Neo4j Community Edition
 - **Queue/Orchestration:** Redis + Celery for async pipeline stages
-- **LLM (enrichment):** Claude Haiku via Anthropic API (contextual retrieval, QuIM-RAG)
+- **LLM:** Multi-provider abstraction (Ollama primary, NVIDIA NIM fallback, Anthropic optional). Config: `configs/llm.yaml`
 - **Evaluation:** RAGAS framework
 - **Testing:** pytest + pytest-asyncio
 - **Linting:** ruff (replaces flake8+isort+black)
