@@ -362,7 +362,7 @@ class _OpenAICompatibleProvider(BaseLLMProvider):
         choices = data.get("choices", [])
         if choices:
             msg = choices[0].get("message", {})
-            text = msg.get("content") or msg.get("reasoning_content") or ""
+            text = msg.get("content") or msg.get("reasoning_content") or msg.get("reasoning") or ""
         usage_raw = data.get("usage", {})
         usage = {
             "prompt_tokens": usage_raw.get("prompt_tokens", 0),
