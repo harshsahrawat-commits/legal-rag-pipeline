@@ -22,6 +22,7 @@ from src.parsing._models import (
     QualityReport,
     SectionLevel,
 )
+from src.utils._llm_client import LLMResponse
 
 
 def _make_statute_with_definitions() -> ParsedDocument:
@@ -73,15 +74,14 @@ def _make_statute_with_definitions() -> ParsedDocument:
     )
 
 
-def _mock_anthropic_client(response_text: str) -> MagicMock:
-    """Create a mock Anthropic client that returns predefined text."""
-    client = MagicMock()
-    content_block = MagicMock()
-    content_block.text = response_text
-    response = MagicMock()
-    response.content = [content_block]
-    client.messages.create.return_value = response
-    return client
+def _make_mock_provider(response_text: str) -> MagicMock:
+    """Create a mock LLM provider that returns predefined text."""
+    provider = MagicMock()
+    response = LLMResponse(text=response_text, model="mock", provider="mock")
+    provider.complete.return_value = response
+    provider.is_available = True
+    provider.provider_name = "mock"
+    return provider
 
 
 class TestStrategy:
@@ -105,7 +105,7 @@ class TestCanChunk:
         assert chunker.can_chunk(sample_unstructured_doc) is False
 
 
-class TestChunkWithMockedClient:
+class TestChunkWithMockedProvider:
     def test_decomposes_definitions(self):
         doc = _make_statute_with_definitions()
         response = (
@@ -114,9 +114,9 @@ class TestChunkWithMockedClient:
             'Under Section 2(b) of the Indian Contract Act, 1872, a proposal is "accepted" '
             "when the person to whom the proposal is made signifies his assent thereto."
         )
-        client = _mock_anthropic_client(response)
+        provider = _make_mock_provider(response)
         chunker = PropositionChunker(ChunkingSettings(), TokenCounter())
-        chunker._client = client
+        chunker._provider = provider
         chunks = chunker.chunk(doc)
         assert len(chunks) == 2
         assert all(c.chunk_type == ChunkType.DEFINITION for c in chunks)
@@ -125,9 +125,9 @@ class TestChunkWithMockedClient:
 
     def test_metadata_populated(self):
         doc = _make_statute_with_definitions()
-        client = _mock_anthropic_client("Definition one.\nDefinition two.")
+        provider = _make_mock_provider("Definition one.\nDefinition two.")
         chunker = PropositionChunker(ChunkingSettings(), TokenCounter())
-        chunker._client = client
+        chunker._provider = provider
         chunks = chunker.chunk(doc)
         for c in chunks:
             assert c.statute is not None
@@ -138,41 +138,46 @@ class TestChunkWithMockedClient:
 
     def test_empty_response(self):
         doc = _make_statute_with_definitions()
-        client = _mock_anthropic_client("")
+        provider = _make_mock_provider("")
         chunker = PropositionChunker(ChunkingSettings(), TokenCounter())
-        chunker._client = client
+        chunker._provider = provider
         chunks = chunker.chunk(doc)
         assert chunks == []
 
-    def test_calls_correct_model(self):
+    def test_provider_called_with_max_tokens(self):
         doc = _make_statute_with_definitions()
-        client = _mock_anthropic_client("Def one.\nDef two.")
+        provider = _make_mock_provider("Def one.\nDef two.")
         settings = ChunkingSettings(proposition_model="claude-haiku-4-5-20251001")
         chunker = PropositionChunker(settings, TokenCounter())
-        chunker._client = client
+        chunker._provider = provider
         chunker.chunk(doc)
-        call_args = client.messages.create.call_args
-        assert call_args.kwargs["model"] == "claude-haiku-4-5-20251001"
+        call_kwargs = provider.complete.call_args.kwargs
+        assert call_kwargs["max_tokens"] == settings.proposition_max_tokens_response
 
     def test_unique_ids(self):
         doc = _make_statute_with_definitions()
-        client = _mock_anthropic_client("A.\nB.\nC.")
+        provider = _make_mock_provider("A.\nB.\nC.")
         chunker = PropositionChunker(ChunkingSettings(), TokenCounter())
-        chunker._client = client
+        chunker._provider = provider
         chunks = chunker.chunk(doc)
         ids = [c.id for c in chunks]
         assert len(ids) == len(set(ids))
 
 
 class TestMissingDependency:
-    def test_raises_when_no_anthropic(self):
+    def test_raises_when_provider_unavailable(self):
+        from src.utils._exceptions import LLMNotAvailableError
+
         doc = _make_statute_with_definitions()
         chunker = PropositionChunker(ChunkingSettings(), TokenCounter())
         with (
-            patch.dict("sys.modules", {"anthropic": None}),
-            pytest.raises(ChunkerNotAvailableError, match="anthropic"),
+            patch(
+                "src.chunking.chunkers._proposition.get_llm_provider",
+                side_effect=LLMNotAvailableError("no provider"),
+            ),
+            pytest.raises(ChunkerNotAvailableError, match="LLM provider"),
         ):
-            chunker._client = None
+            chunker._provider = None
             chunker.chunk(doc)
 
 

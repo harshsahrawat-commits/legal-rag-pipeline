@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 from src.enrichment._models import EnrichmentConfig, EnrichmentSettings
 from src.enrichment.pipeline import EnrichmentPipeline, _load_chunks, _resolve_source_filter
-from tests.enrichment.conftest import make_mock_async_anthropic
+from tests.enrichment.conftest import make_mock_provider
 
 if TYPE_CHECKING:
     from src.chunking._models import LegalChunk
@@ -57,10 +57,9 @@ def _make_pipeline(
     )
     config = EnrichmentConfig(settings=settings)
     pipeline = EnrichmentPipeline(config=config)
-    # Mock both enrichers' LLM clients
-    mock_client = make_mock_async_anthropic(client_response)
-    pipeline._contextual._client = mock_client
-    pipeline._quim._client = make_mock_async_anthropic(_QUIM_RESPONSE)
+    # Mock both enrichers' LLM providers
+    pipeline._contextual._provider = make_mock_provider(client_response)
+    pipeline._quim._provider = make_mock_provider(_QUIM_RESPONSE)
     return pipeline
 
 
@@ -285,7 +284,7 @@ class TestErrorHandling:
 
         # All LLM calls fail — but per-chunk isolation means the document
         # still "completes" with zero chunks contextualized
-        pipeline._contextual._client.messages.create = AsyncMock(
+        pipeline._contextual._provider.acomplete = AsyncMock(
             side_effect=RuntimeError("LLM down")
         )
         result = await pipeline.run(stage="contextual_retrieval")

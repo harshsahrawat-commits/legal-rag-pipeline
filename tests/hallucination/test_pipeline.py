@@ -164,9 +164,14 @@ class TestPipelineGenGroundLayer:
         genground_settings: HallucinationSettings,
         sample_input: VerificationInput,
     ) -> None:
-        """GenGround enabled but anthropic not installed → error isolated."""
+        """GenGround enabled but LLM provider unavailable → error isolated."""
+        from src.utils._exceptions import LLMNotAvailableError
+
         pipeline = HallucinationPipeline(genground_settings)
-        with patch.dict("sys.modules", {"anthropic": None}):
+        with patch(
+            "src.hallucination._genground_refiner.get_llm_provider",
+            side_effect=LLMNotAvailableError("no provider"),
+        ):
             result = await pipeline.verify(sample_input)
         # Should record error but not crash
         assert len(result.errors) >= 1

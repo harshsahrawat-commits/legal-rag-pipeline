@@ -4,7 +4,7 @@ For each chunk, generates 3-5 practical questions a lawyer might ask that
 the chunk could answer. Questions are stored in a ``QuIMDocument`` sidecar
 file and the chunk's ``ingestion.quim_questions`` count is updated.
 
-Requires ``anthropic`` (optional dependency).
+Uses the LLM provider abstraction (``get_llm_provider``).
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.enrichment._exceptions import (
     EnricherNotAvailableError,
@@ -20,11 +20,14 @@ from src.enrichment._exceptions import (
 )
 from src.enrichment._models import QuIMDocument, QuIMEntry
 from src.enrichment.enrichers._base import BaseEnricher
+from src.utils._exceptions import LLMCallError, LLMNotAvailableError
+from src.utils._llm_client import LLMMessage, get_llm_provider
 
 if TYPE_CHECKING:
     from src.chunking._models import LegalChunk
     from src.enrichment._models import EnrichmentSettings
     from src.parsing._models import ParsedDocument
+    from src.utils._llm_client import BaseLLMProvider
 
 _log = logging.getLogger(__name__)
 
@@ -55,7 +58,7 @@ class QuIMRagEnricher(BaseEnricher):
 
     def __init__(self, settings: EnrichmentSettings) -> None:
         super().__init__(settings)
-        self._client: Any = None
+        self._provider: BaseLLMProvider | None = None
         self._last_quim_doc: QuIMDocument | None = None
 
     @property
@@ -72,7 +75,7 @@ class QuIMRagEnricher(BaseEnricher):
         parsed_doc: ParsedDocument,
     ) -> list[LegalChunk]:
         """Generate questions for each chunk and update quim_questions count."""
-        self._ensure_client()
+        self._ensure_provider()
         self._last_quim_doc = None
 
         if not chunks:
@@ -106,7 +109,7 @@ class QuIMRagEnricher(BaseEnricher):
     async def _generate_for_chunk(
         self,
         chunk: LegalChunk,
-        system_messages: list[dict[str, Any]],
+        system_messages: list[LLMMessage],
     ) -> QuIMEntry | None:
         """Generate questions for a single chunk. Errors are isolated."""
         try:
@@ -120,14 +123,13 @@ class QuIMRagEnricher(BaseEnricher):
                 n=self._settings.quim_questions_per_chunk,
             )
 
-            response = await self._client.messages.create(
-                model=self._settings.model,
+            response = await self._provider.acomplete(
+                [LLMMessage(role="user", content=user_message)],
                 max_tokens=self._settings.max_tokens_response,
                 system=system_messages,
-                messages=[{"role": "user", "content": user_message}],
             )
 
-            raw_text = response.content[0].text
+            raw_text = response.text
             questions = _parse_questions(raw_text)
 
             if questions:
@@ -140,6 +142,15 @@ class QuIMRagEnricher(BaseEnricher):
                     model=self._settings.model,
                 )
 
+        except LLMCallError as exc:
+            exc_str = str(exc)
+            if "RateLimitError" in exc_str or "rate limit" in exc_str.lower():
+                msg = f"LLM rate limit exceeded: {exc}"
+                raise LLMRateLimitError(msg) from exc
+            _log.exception(
+                "quim_generation_failed",
+                extra={"chunk_id": str(chunk.id)},
+            )
         except Exception as exc:
             exc_type = type(exc).__name__
             if "RateLimitError" in exc_type:
@@ -152,14 +163,14 @@ class QuIMRagEnricher(BaseEnricher):
 
         return None
 
-    def _build_system_messages(self, document_text: str) -> list[dict[str, Any]]:
+    def _build_system_messages(self, document_text: str) -> list[LLMMessage]:
         """Build the system message list with prompt caching."""
         return [
-            {
-                "type": "text",
-                "text": _SYSTEM_TEMPLATE.format(full_doc_text=document_text),
-                "cache_control": {"type": "ephemeral"},
-            }
+            LLMMessage(
+                role="system",
+                content=_SYSTEM_TEMPLATE.format(full_doc_text=document_text),
+                cache_control={"type": "ephemeral"},
+            )
         ]
 
     @staticmethod
@@ -180,16 +191,14 @@ class QuIMRagEnricher(BaseEnricher):
             return chunk.chunk_type.value
         return "Unknown Section"
 
-    def _ensure_client(self) -> None:
-        """Lazy-load the async Anthropic client."""
-        if self._client is not None:
+    def _ensure_provider(self) -> None:
+        """Lazy-load the LLM provider."""
+        if self._provider is not None:
             return
         try:
-            import anthropic
-
-            self._client = anthropic.AsyncAnthropic()
-        except ImportError:
-            msg = "QuIMRagEnricher requires anthropic. Install with: pip install anthropic"
+            self._provider = get_llm_provider("quim_rag")
+        except LLMNotAvailableError as exc:
+            msg = f"QuIMRagEnricher requires an LLM provider: {exc}"
             raise EnricherNotAvailableError(msg) from None
 
 

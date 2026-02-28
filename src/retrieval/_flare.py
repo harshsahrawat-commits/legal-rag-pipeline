@@ -8,21 +8,24 @@ analytical legal queries by:
 3. Generating follow-up queries for low-confidence segments
 4. Re-retrieving and adding new chunks to the context
 
-Uses Anthropic Claude Haiku for LLM confidence assessment (lazy import).
+Uses the LLM provider abstraction (``get_llm_provider``).
 """
 
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.retrieval._exceptions import FLAREError
+from src.utils._exceptions import LLMNotAvailableError
+from src.utils._llm_client import LLMMessage, get_llm_provider
 from src.utils._logging import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from src.retrieval._models import ExpandedContext, RetrievalSettings, ScoredChunk
+    from src.utils._llm_client import BaseLLMProvider
 
 _log = get_logger(__name__)
 
@@ -41,7 +44,7 @@ class FLAREActiveRetriever:
 
     def __init__(self, settings: RetrievalSettings) -> None:
         self._settings = settings
-        self._client: Any = None
+        self._provider: BaseLLMProvider | None = None
 
     # ------------------------------------------------------------------
     # Availability
@@ -49,34 +52,32 @@ class FLAREActiveRetriever:
 
     @property
     def is_available(self) -> bool:
-        """Whether FLARE is enabled and the anthropic package is importable."""
+        """Whether FLARE is enabled and an LLM provider is available."""
         if not self._settings.flare_enabled:
             return False
         try:
-            import anthropic  # noqa: F401
-
-            return True
-        except ImportError:
+            provider = get_llm_provider("flare")
+            return provider.is_available
+        except LLMNotAvailableError:
             return False
 
     # ------------------------------------------------------------------
-    # Client lifecycle
+    # Provider lifecycle
     # ------------------------------------------------------------------
 
-    def _ensure_client(self) -> None:
-        """Lazy-initialize the Anthropic async client.
+    def _ensure_provider(self) -> None:
+        """Lazy-initialize the LLM provider.
 
         Raises:
-            FLAREError: If ``anthropic`` is not installed.
+            FLAREError: If no LLM provider can be initialized.
         """
-        if self._client is not None:
+        if self._provider is not None:
             return
         try:
-            import anthropic
-        except ImportError as exc:
-            msg = "anthropic is required for FLARE. Install with: pip install anthropic"
+            self._provider = get_llm_provider("flare")
+        except LLMNotAvailableError as exc:
+            msg = f"LLM provider required for FLARE: {exc}"
             raise FLAREError(msg) from exc
-        self._client = anthropic.AsyncAnthropic()
 
     # ------------------------------------------------------------------
     # Public API
@@ -107,7 +108,7 @@ class FLAREActiveRetriever:
         if not self._settings.flare_enabled:
             return initial_chunks, 0
 
-        self._ensure_client()
+        self._ensure_provider()
 
         segments = self._segment_chunks(initial_chunks)
         if not segments:
@@ -213,14 +214,12 @@ class FLAREActiveRetriever:
             "segment. Example: [0.9, 0.3, 0.7]"
         )
 
-        response = await self._client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = await self._provider.acomplete(
+            [LLMMessage(role="user", content=prompt)],
             max_tokens=256,
-            messages=[{"role": "user", "content": prompt}],
         )
 
-        text = response.content[0].text.strip()
-        return self._parse_confidence_scores(text, len(segments))
+        return self._parse_confidence_scores(response.text.strip(), len(segments))
 
     async def _generate_follow_ups(
         self,
@@ -242,14 +241,12 @@ class FLAREActiveRetriever:
             "to find better information. Return ONLY a JSON array of strings."
         )
 
-        response = await self._client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = await self._provider.acomplete(
+            [LLMMessage(role="user", content=prompt)],
             max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
         )
 
-        text = response.content[0].text.strip()
-        return self._parse_follow_up_queries(text, query)
+        return self._parse_follow_up_queries(response.text.strip(), query)
 
     # ------------------------------------------------------------------
     # Response parsing

@@ -369,42 +369,38 @@ class TestRagasEvaluatorImportRagas:
 class TestRagasEvaluatorInitLLM:
     """Tests for _init_llm."""
 
-    def test_init_llm_creates_chat_anthropic(self, evaluator: RagasEvaluator) -> None:
-        """_init_llm creates a ChatAnthropic instance."""
-        mock_chat_cls = MagicMock()
-        mock_chat_instance = MagicMock()
-        mock_chat_cls.return_value = mock_chat_instance
-
-        fake_langchain = types.ModuleType("langchain_anthropic")
-        fake_langchain.ChatAnthropic = mock_chat_cls  # type: ignore[attr-defined]
-
-        with patch.dict("sys.modules", {"langchain_anthropic": fake_langchain}):
+    def test_init_llm_returns_langchain_model(self, evaluator: RagasEvaluator) -> None:
+        """_init_llm returns a LangChain chat model via get_langchain_llm."""
+        mock_llm = MagicMock()
+        with patch(
+            "src.utils._llm_client.get_langchain_llm", return_value=mock_llm
+        ):
             result = evaluator._init_llm()
 
-        assert result is mock_chat_instance
-        mock_chat_cls.assert_called_once()
+        assert result is mock_llm
 
-    def test_init_llm_missing_langchain_raises(self, evaluator: RagasEvaluator) -> None:
-        """Missing langchain_anthropic raises RagasNotAvailableError."""
+    def test_init_llm_raises_when_provider_unavailable(self, evaluator: RagasEvaluator) -> None:
+        """LLMNotAvailableError from get_langchain_llm raises RagasNotAvailableError."""
+        from src.utils._exceptions import LLMNotAvailableError
+
         with (
-            patch.dict("sys.modules", {"langchain_anthropic": None}),
-            pytest.raises(RagasNotAvailableError, match="langchain-anthropic"),
+            patch(
+                "src.utils._llm_client.get_langchain_llm",
+                side_effect=LLMNotAvailableError("no provider configured"),
+            ),
+            pytest.raises(RagasNotAvailableError, match="no provider configured"),
         ):
             evaluator._init_llm()
 
-    def test_init_llm_uses_model_from_settings(self) -> None:
-        """Model name from settings is passed to ChatAnthropic."""
-        custom_settings = EvaluationSettings(ragas_llm_model="claude-custom-model")
-        ev = RagasEvaluator(custom_settings)
+    def test_init_llm_calls_with_ragas_component(self, evaluator: RagasEvaluator) -> None:
+        """get_langchain_llm is called with 'ragas' component name."""
+        mock_llm = MagicMock()
+        with patch(
+            "src.utils._llm_client.get_langchain_llm", return_value=mock_llm
+        ) as mock_get:
+            evaluator._init_llm()
 
-        mock_chat_cls = MagicMock()
-        fake_langchain = types.ModuleType("langchain_anthropic")
-        fake_langchain.ChatAnthropic = mock_chat_cls  # type: ignore[attr-defined]
-
-        with patch.dict("sys.modules", {"langchain_anthropic": fake_langchain}):
-            ev._init_llm()
-
-        mock_chat_cls.assert_called_once_with(model="claude-custom-model")
+        mock_get.assert_called_once_with("ragas")
 
 
 # ===================================================================

@@ -231,40 +231,39 @@ class TestAnalyticalRouteE2E:
         engine._flare._settings.flare_enabled = True
         engine._flare._settings.flare_segment_tokens = 5
 
-        # Set up FLARE mock
-        fake_anthropic = MagicMock()
-        with patch.dict("sys.modules", {"anthropic": fake_anthropic}):
-            # Manually set FLARE client
-            responses = ["[0.2]", '["follow-up about IPC 302"]']
-            call_count = 0
+        # Set up FLARE mock via LLM provider abstraction
+        from src.utils._llm_client import LLMResponse
 
-            async def multi_response(**kwargs):
-                nonlocal call_count
-                text = responses[min(call_count, len(responses) - 1)]
-                call_count += 1
-                block = MagicMock()
-                block.text = text
-                resp = MagicMock()
-                resp.content = [block]
-                return resp
+        responses = [
+            LLMResponse(text="[0.2]", model="m", provider="p"),
+            LLMResponse(text='["follow-up about IPC 302"]', model="m", provider="p"),
+        ]
+        call_count = 0
 
-            engine._flare._client = MagicMock()
-            engine._flare._client.messages.create = AsyncMock(side_effect=multi_response)
+        async def multi_response(*args, **kwargs):
+            nonlocal call_count
+            resp = responses[min(call_count, len(responses) - 1)]
+            call_count += 1
+            return resp
 
-            # hybrid_search will be called for re-retrieval
-            with patch.object(engine, "hybrid_search", new_callable=AsyncMock) as mock_hs:
-                mock_hs.return_value = [_make_scored("c_new", "dense", 0.85)]
+        provider = MagicMock()
+        provider.acomplete = AsyncMock(side_effect=multi_response)
+        engine._flare._provider = provider
 
-                query = RetrievalQuery(
-                    text="Analyze the evolution of Section 302 IPC",
-                    query_embedding=[0.1] * 768,
-                    query_embedding_fast=[0.2] * 64,
-                    sparse_indices=[1],
-                    sparse_values=[0.5],
-                    route=QueryRoute.ANALYTICAL,
-                )
+        # hybrid_search will be called for re-retrieval
+        with patch.object(engine, "hybrid_search", new_callable=AsyncMock) as mock_hs:
+            mock_hs.return_value = [_make_scored("c_new", "dense", 0.85)]
 
-                result = await engine.retrieve(query)
+            query = RetrievalQuery(
+                text="Analyze the evolution of Section 302 IPC",
+                query_embedding=[0.1] * 768,
+                query_embedding_fast=[0.2] * 64,
+                sparse_indices=[1],
+                sparse_values=[0.5],
+                route=QueryRoute.ANALYTICAL,
+            )
+
+            result = await engine.retrieve(query)
 
         assert result.route == QueryRoute.ANALYTICAL
         assert result.flare_retrievals >= 1

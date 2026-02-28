@@ -1,17 +1,17 @@
 """Contextual Retrieval enricher.
 
-For each chunk, generates a 2-3 sentence context prefix using Claude Haiku
+For each chunk, generates a 2-3 sentence context prefix using an LLM
 with prompt caching. The full document text is cached in the system message;
 only the per-chunk query varies.
 
-Requires ``anthropic`` (optional dependency).
+Uses the LLM provider abstraction (``get_llm_provider``).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.chunking._token_counter import TokenCounter
 from src.enrichment._exceptions import (
@@ -20,11 +20,14 @@ from src.enrichment._exceptions import (
     LLMRateLimitError,
 )
 from src.enrichment.enrichers._base import BaseEnricher
+from src.utils._exceptions import LLMCallError, LLMNotAvailableError
+from src.utils._llm_client import LLMMessage, get_llm_provider
 
 if TYPE_CHECKING:
     from src.chunking._models import LegalChunk
     from src.enrichment._models import EnrichmentSettings
     from src.parsing._models import ParsedDocument
+    from src.utils._llm_client import BaseLLMProvider
 
 _log = logging.getLogger(__name__)
 
@@ -55,7 +58,7 @@ class ContextualRetrievalEnricher(BaseEnricher):
 
     def __init__(self, settings: EnrichmentSettings) -> None:
         super().__init__(settings)
-        self._client: Any = None
+        self._provider: BaseLLMProvider | None = None
         self._tc = TokenCounter()
 
     @property
@@ -73,7 +76,7 @@ class ContextualRetrievalEnricher(BaseEnricher):
         within the model's context window. Chunks are grouped by window
         and processed concurrently within each window group.
         """
-        self._ensure_client()
+        self._ensure_provider()
 
         full_text = parsed_doc.raw_text or ""
         chunks_to_enrich = self._filter_chunks(chunks)
@@ -171,20 +174,20 @@ class ContextualRetrievalEnricher(BaseEnricher):
 
         return result
 
-    def _build_system_messages(self, document_text: str) -> list[dict[str, Any]]:
+    def _build_system_messages(self, document_text: str) -> list[LLMMessage]:
         """Build the system message list with prompt caching."""
         return [
-            {
-                "type": "text",
-                "text": _SYSTEM_TEMPLATE.format(full_doc_text=document_text),
-                "cache_control": {"type": "ephemeral"},
-            }
+            LLMMessage(
+                role="system",
+                content=_SYSTEM_TEMPLATE.format(full_doc_text=document_text),
+                cache_control={"type": "ephemeral"},
+            )
         ]
 
     async def _enrich_one(
         self,
         chunk: LegalChunk,
-        system_messages: list[dict[str, Any]],
+        system_messages: list[LLMMessage],
         semaphore: asyncio.Semaphore,
     ) -> None:
         """Enrich a single chunk. Errors are isolated — chunk stays unenriched."""
@@ -205,19 +208,25 @@ class ContextualRetrievalEnricher(BaseEnricher):
     async def _call_llm(
         self,
         chunk_text: str,
-        system_messages: list[dict[str, Any]],
+        system_messages: list[LLMMessage],
     ) -> str:
         """Call the LLM to generate context for a chunk."""
         user_message = _USER_TEMPLATE.format(chunk_text=chunk_text)
 
         try:
-            response = await self._client.messages.create(
-                model=self._settings.model,
+            response = await self._provider.acomplete(
+                [LLMMessage(role="user", content=user_message)],
                 max_tokens=self._settings.max_tokens_response,
                 system=system_messages,
-                messages=[{"role": "user", "content": user_message}],
             )
-            return response.content[0].text
+            return response.text
+        except LLMCallError as exc:
+            exc_str = str(exc)
+            if "RateLimitError" in exc_str or "rate limit" in exc_str.lower():
+                msg = f"LLM rate limit exceeded: {exc}"
+                raise LLMRateLimitError(msg) from exc
+            msg = f"Contextual retrieval LLM call failed: {exc}"
+            raise ContextualRetrievalError(msg) from exc
         except Exception as exc:
             exc_type = type(exc).__name__
             if "RateLimitError" in exc_type:
@@ -226,17 +235,12 @@ class ContextualRetrievalEnricher(BaseEnricher):
             msg = f"Contextual retrieval LLM call failed: {exc}"
             raise ContextualRetrievalError(msg) from exc
 
-    def _ensure_client(self) -> None:
-        """Lazy-load the async Anthropic client."""
-        if self._client is not None:
+    def _ensure_provider(self) -> None:
+        """Lazy-load the LLM provider."""
+        if self._provider is not None:
             return
         try:
-            import anthropic
-
-            self._client = anthropic.AsyncAnthropic()
-        except ImportError:
-            msg = (
-                "ContextualRetrievalEnricher requires anthropic. "
-                "Install with: pip install anthropic"
-            )
+            self._provider = get_llm_provider("contextual_retrieval")
+        except LLMNotAvailableError as exc:
+            msg = f"ContextualRetrievalEnricher requires an LLM provider: {exc}"
             raise EnricherNotAvailableError(msg) from None

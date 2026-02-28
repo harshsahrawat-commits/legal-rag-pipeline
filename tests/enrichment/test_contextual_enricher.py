@@ -11,7 +11,8 @@ from src.enrichment._exceptions import (
 )
 from src.enrichment._models import EnrichmentSettings
 from src.enrichment.enrichers._contextual import ContextualRetrievalEnricher
-from tests.enrichment.conftest import make_mock_async_anthropic
+from src.utils._llm_client import LLMResponse
+from tests.enrichment.conftest import make_mock_provider
 
 if TYPE_CHECKING:
     from src.chunking._models import LegalChunk
@@ -23,9 +24,9 @@ class TestStageNameAndInit:
         enricher = ContextualRetrievalEnricher(enrichment_settings)
         assert enricher.stage_name == "contextual_retrieval"
 
-    def test_client_starts_none(self, enrichment_settings: EnrichmentSettings):
+    def test_provider_starts_none(self, enrichment_settings: EnrichmentSettings):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        assert enricher._client is None
+        assert enricher._provider is None
 
 
 class TestEnrichChunks:
@@ -36,7 +37,7 @@ class TestEnrichChunks:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(
+        enricher._provider = make_mock_provider(
             "This chunk is from Section 10 of the Indian Contract Act."
         )
         result = await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
@@ -52,7 +53,7 @@ class TestEnrichChunks:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context prefix here.")
+        enricher._provider = make_mock_provider("Context prefix here.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
         for chunk in sample_statute_chunks:
             assert chunk.text in chunk.contextualized_text
@@ -65,7 +66,7 @@ class TestEnrichChunks:
     ):
         """Contextualized text should be: context + \\n\\n + original text."""
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context prefix.")
+        enricher._provider = make_mock_provider("Context prefix.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
         chunk = sample_statute_chunks[0]
         assert chunk.contextualized_text.startswith("Context prefix.")
@@ -79,7 +80,7 @@ class TestEnrichChunks:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context.")
+        enricher._provider = make_mock_provider("Context.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
         for chunk in sample_statute_chunks:
             assert chunk.ingestion.contextualized is True
@@ -92,7 +93,7 @@ class TestEnrichChunks:
     ):
         original_texts = [c.text for c in sample_statute_chunks]
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context.")
+        enricher._provider = make_mock_provider("Context.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
         for chunk, orig in zip(sample_statute_chunks, original_texts, strict=True):
             assert chunk.text == orig
@@ -106,14 +107,14 @@ class TestPromptCaching:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        client = make_mock_async_anthropic("Context.")
-        enricher._client = client
+        provider = make_mock_provider("Context.")
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
+        call_kwargs = provider.acomplete.call_args.kwargs
         system = call_kwargs["system"]
         assert isinstance(system, list)
-        assert system[0]["cache_control"] == {"type": "ephemeral"}
+        assert system[0].cache_control == {"type": "ephemeral"}
 
     async def test_system_message_contains_document_text(
         self,
@@ -122,12 +123,12 @@ class TestPromptCaching:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        client = make_mock_async_anthropic("Context.")
-        enricher._client = client
+        provider = make_mock_provider("Context.")
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
-        system_text = call_kwargs["system"][0]["text"]
+        call_kwargs = provider.acomplete.call_args.kwargs
+        system_text = call_kwargs["system"][0].content
         assert "<document>" in system_text
         assert "Indian Contract Act" in system_text
 
@@ -138,27 +139,13 @@ class TestPromptCaching:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        client = make_mock_async_anthropic("Context.")
-        enricher._client = client
+        provider = make_mock_provider("Context.")
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
-        user_content = call_kwargs["messages"][0]["content"]
+        call_args = provider.acomplete.call_args
+        user_content = call_args.args[0][0].content
         assert "<chunk>" in user_content
-
-    async def test_calls_correct_model(
-        self,
-        sample_statute_chunks: list[LegalChunk],
-        sample_parsed_doc: ParsedDocument,
-    ):
-        settings = EnrichmentSettings(model="custom-model-v1", concurrency=2)
-        enricher = ContextualRetrievalEnricher(settings)
-        client = make_mock_async_anthropic("Context.")
-        enricher._client = client
-        await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
-
-        call_kwargs = client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "custom-model-v1"
 
     async def test_max_tokens_response_respected(
         self,
@@ -167,11 +154,11 @@ class TestPromptCaching:
     ):
         settings = EnrichmentSettings(max_tokens_response=256, concurrency=2)
         enricher = ContextualRetrievalEnricher(settings)
-        client = make_mock_async_anthropic("Context.")
-        enricher._client = client
+        provider = make_mock_provider("Context.")
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
+        call_kwargs = provider.acomplete.call_args.kwargs
         assert call_kwargs["max_tokens"] == 256
 
 
@@ -184,22 +171,19 @@ class TestErrorIsolation:
     ):
         """If one chunk's LLM call fails, others still succeed."""
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        client = MagicMock()
+        provider = MagicMock()
 
-        content_ok = MagicMock()
-        content_ok.text = "Context for this chunk."
-        response_ok = MagicMock()
-        response_ok.content = [content_ok]
+        response_ok = LLMResponse(text="Context for this chunk.", model="m", provider="p")
 
         # First call fails, second and third succeed
-        client.messages.create = AsyncMock(
+        provider.acomplete = AsyncMock(
             side_effect=[
                 RuntimeError("LLM unavailable"),
                 response_ok,
                 response_ok,
             ]
         )
-        enricher._client = client
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         # First chunk should NOT be contextualized
@@ -217,12 +201,12 @@ class TestErrorIsolation:
     ):
         """Rate limit errors should propagate as LLMRateLimitError."""
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        client = MagicMock()
+        provider = MagicMock()
 
         # Simulate a rate limit error with the right class name
         rate_err = type("RateLimitError", (Exception,), {})("rate limited")
-        client.messages.create = AsyncMock(side_effect=rate_err)
-        enricher._client = client
+        provider.acomplete = AsyncMock(side_effect=rate_err)
+        enricher._provider = provider
 
         with pytest.raises(LLMRateLimitError, match="rate limit"):
             await enricher.enrich_document(sample_statute_chunks[:1], sample_parsed_doc)
@@ -235,7 +219,7 @@ class TestErrorIsolation:
     ):
         """Empty or whitespace-only LLM response leaves chunk unenriched."""
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("   ")
+        enricher._provider = make_mock_provider("   ")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
         for chunk in sample_statute_chunks:
             assert chunk.ingestion.contextualized is False
@@ -243,14 +227,19 @@ class TestErrorIsolation:
 
 
 class TestMissingDependency:
-    def test_raises_when_no_anthropic(self, enrichment_settings: EnrichmentSettings):
+    def test_raises_when_provider_unavailable(self, enrichment_settings: EnrichmentSettings):
+        from src.utils._exceptions import LLMNotAvailableError
+
         enricher = ContextualRetrievalEnricher(enrichment_settings)
         with (
-            patch.dict("sys.modules", {"anthropic": None}),
-            pytest.raises(EnricherNotAvailableError, match="anthropic"),
+            patch(
+                "src.enrichment.enrichers._contextual.get_llm_provider",
+                side_effect=LLMNotAvailableError("no provider"),
+            ),
+            pytest.raises(EnricherNotAvailableError, match="LLM provider"),
         ):
-            enricher._client = None
-            enricher._ensure_client()
+            enricher._provider = None
+            enricher._ensure_provider()
 
 
 class TestDocumentWindowing:
@@ -262,7 +251,7 @@ class TestDocumentWindowing:
     ):
         """Documents under context_window_tokens use a single window."""
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context.")
+        enricher._provider = make_mock_provider("Context.")
         windows = enricher._build_windows(sample_parsed_doc.raw_text)
         assert len(windows) == 1
 
@@ -315,12 +304,12 @@ class TestSkipBehavior:
             chunk.contextualized_text = "Already done.\n\n" + chunk.text
 
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        client = make_mock_async_anthropic("New context.")
-        enricher._client = client
+        provider = make_mock_provider("New context.")
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         # LLM should NOT have been called
-        client.messages.create.assert_not_called()
+        provider.acomplete.assert_not_called()
 
     async def test_skips_manual_review_when_configured(
         self,
@@ -332,8 +321,7 @@ class TestSkipBehavior:
         sample_statute_chunks[0].ingestion.requires_manual_review = True
 
         enricher = ContextualRetrievalEnricher(settings)
-        client = make_mock_async_anthropic("Context.")
-        enricher._client = client
+        enricher._provider = make_mock_provider("Context.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         # First chunk skipped, other two enriched
@@ -351,7 +339,7 @@ class TestSkipBehavior:
         sample_statute_chunks[0].ingestion.requires_manual_review = True
 
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context.")
+        enricher._provider = make_mock_provider("Context.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         assert sample_statute_chunks[0].ingestion.contextualized is True
@@ -362,7 +350,7 @@ class TestSkipBehavior:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context.")
+        enricher._provider = make_mock_provider("Context.")
         result = await enricher.enrich_document([], sample_parsed_doc)
         assert result == []
 
@@ -375,7 +363,7 @@ class TestJudgmentChunks:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(
+        enricher._provider = make_mock_provider(
             "This chunk is from the facts section of AIR 2024 SC 1500."
         )
         await enricher.enrich_document(sample_judgment_chunks, sample_parsed_doc)
@@ -393,7 +381,7 @@ class TestConcurrency:
         """Verify concurrency limit is applied (calls still complete)."""
         settings = EnrichmentSettings(concurrency=1)
         enricher = ContextualRetrievalEnricher(settings)
-        enricher._client = make_mock_async_anthropic("Context.")
+        enricher._provider = make_mock_provider("Context.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
         # All chunks should still be enriched despite concurrency=1
         assert all(c.ingestion.contextualized for c in sample_statute_chunks)
@@ -408,6 +396,6 @@ class TestChunkIds:
     ):
         original_ids = [c.id for c in sample_statute_chunks]
         enricher = ContextualRetrievalEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("Context.")
+        enricher._provider = make_mock_provider("Context.")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
         assert [c.id for c in sample_statute_chunks] == original_ids

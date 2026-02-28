@@ -2,6 +2,8 @@
 
 SIMPLE route: single-pass LLM audit (1 call).
 STANDARD+: full per-claim decomposition, re-retrieval, and alignment checking.
+
+Uses the LLM provider abstraction (``get_llm_provider``).
 """
 
 from __future__ import annotations
@@ -15,12 +17,15 @@ from src.hallucination._models import (
     ClaimVerdictType,
     ExtractedClaim,
 )
+from src.utils._exceptions import LLMCallError, LLMNotAvailableError
+from src.utils._llm_client import LLMMessage, get_llm_provider
 from src.utils._logging import get_logger
 
 if TYPE_CHECKING:
     from src.hallucination._models import HallucinationSettings
     from src.retrieval._engine import RetrievalEngine
     from src.retrieval._models import ExpandedContext
+    from src.utils._llm_client import BaseLLMProvider
 
 _log = get_logger(__name__)
 
@@ -78,7 +83,7 @@ class GenGroundRefiner:
     ) -> None:
         self._settings = settings
         self._engine = retrieval_engine
-        self._client: Any = None
+        self._provider: BaseLLMProvider | None = None
         self._llm_calls = 0
 
     @property
@@ -260,34 +265,31 @@ class GenGroundRefiner:
         return response_text + "".join(caveats)
 
     async def _llm_call(self, prompt: str) -> str:
-        """Make an LLM call via AsyncAnthropic."""
-        self._ensure_client()
+        """Make an LLM call via the provider abstraction."""
+        self._ensure_provider()
         try:
-            response = await self._client.messages.create(
-                model=self._settings.llm_model,
+            response = await self._provider.acomplete(
+                [LLMMessage(role="user", content=prompt)],
                 max_tokens=self._settings.llm_max_tokens,
                 temperature=self._settings.llm_temperature,
-                messages=[{"role": "user", "content": prompt}],
             )
-            # Extract text from response
-            content = response.content
-            if content and len(content) > 0:
-                return content[0].text
-            return ""
+            return response.text
+        except LLMCallError as exc:
+            msg = f"LLM call failed: {exc}"
+            raise GenGroundError(msg) from exc
         except Exception as exc:
             msg = f"LLM call failed: {exc}"
             raise GenGroundError(msg) from exc
 
-    def _ensure_client(self) -> None:
-        """Lazy-initialize the Anthropic client."""
-        if self._client is not None:
+    def _ensure_provider(self) -> None:
+        """Lazy-initialize the LLM provider."""
+        if self._provider is not None:
             return
         try:
-            from anthropic import AsyncAnthropic
-        except ImportError as exc:
-            msg = "anthropic package required. Install with: pip install anthropic"
+            self._provider = get_llm_provider("genground")
+        except LLMNotAvailableError as exc:
+            msg = f"LLM provider required for GenGround: {exc}"
             raise GenGroundNotAvailableError(msg) from exc
-        self._client = AsyncAnthropic()
 
 
 def _parse_json(raw: str) -> Any:

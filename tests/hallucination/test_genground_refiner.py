@@ -14,6 +14,7 @@ from src.hallucination._models import (
     HallucinationSettings,
 )
 from src.retrieval._models import ExpandedContext, ScoredChunk
+from src.utils._llm_client import LLMResponse
 
 
 @pytest.fixture()
@@ -42,13 +43,21 @@ def sample_chunks() -> list[ExpandedContext]:
     ]
 
 
-def _mock_anthropic_response(text: str) -> MagicMock:
-    """Build a mock Anthropic message response."""
-    content_block = MagicMock()
-    content_block.text = text
-    response = MagicMock()
-    response.content = [content_block]
-    return response
+def _make_llm_response(text: str) -> LLMResponse:
+    """Build a mock LLM response."""
+    return LLMResponse(text=text, model="mock", provider="mock")
+
+
+def _make_mock_provider(responses: list[LLMResponse] | LLMResponse) -> MagicMock:
+    """Create a mock LLM provider with predefined responses."""
+    provider = MagicMock()
+    if isinstance(responses, list):
+        provider.acomplete = AsyncMock(side_effect=responses)
+    else:
+        provider.acomplete = AsyncMock(return_value=responses)
+    provider.is_available = True
+    provider.provider_name = "mock"
+    return provider
 
 
 class TestParseJson:
@@ -90,13 +99,9 @@ class TestSimpleAudit:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(
-            return_value=_mock_anthropic_response(
-                json.dumps({"verdict": "supported", "issues": []})
-            )
+        refiner._provider = _make_mock_provider(
+            _make_llm_response(json.dumps({"verdict": "supported", "issues": []}))
         )
-        refiner._client = mock_client
 
         modified, verdicts = await refiner.verify(
             "Section 420 punishes cheating.", sample_chunks, is_simple=True
@@ -112,9 +117,8 @@ class TestSimpleAudit:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(
-            return_value=_mock_anthropic_response(
+        refiner._provider = _make_mock_provider(
+            _make_llm_response(
                 json.dumps(
                     {
                         "verdict": "partially_supported",
@@ -123,7 +127,6 @@ class TestSimpleAudit:
                 )
             )
         )
-        refiner._client = mock_client
 
         _modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=True)
         assert verdicts[0].verdict == ClaimVerdictType.PARTIALLY_SUPPORTED
@@ -135,13 +138,11 @@ class TestSimpleAudit:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(
-            return_value=_mock_anthropic_response(
+        refiner._provider = _make_mock_provider(
+            _make_llm_response(
                 json.dumps({"verdict": "unsupported", "issues": ["No evidence"]})
             )
         )
-        refiner._client = mock_client
 
         _modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=True)
         assert verdicts[0].verdict == ClaimVerdictType.UNSUPPORTED
@@ -154,32 +155,28 @@ class TestFullVerify:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
 
         # Call 1: claim extraction
         # Call 2: claim alignment
-        mock_client.messages.create = AsyncMock(
-            side_effect=[
-                _mock_anthropic_response(
-                    json.dumps(
-                        [
-                            {"claim_id": 1, "text": "Section 420 punishes cheating"},
-                        ]
-                    )
-                ),
-                _mock_anthropic_response(
-                    json.dumps(
-                        {
-                            "verdict": "supported",
-                            "confidence": 0.95,
-                            "reasoning": "matches source",
-                            "issues": [],
-                        }
-                    )
-                ),
-            ]
-        )
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider([
+            _make_llm_response(
+                json.dumps(
+                    [
+                        {"claim_id": 1, "text": "Section 420 punishes cheating"},
+                    ]
+                )
+            ),
+            _make_llm_response(
+                json.dumps(
+                    {
+                        "verdict": "supported",
+                        "confidence": 0.95,
+                        "reasoning": "matches source",
+                        "issues": [],
+                    }
+                )
+            ),
+        ])
 
         _modified, verdicts = await refiner.verify(
             "Section 420 punishes cheating.", sample_chunks, is_simple=False
@@ -195,36 +192,32 @@ class TestFullVerify:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
 
-        mock_client.messages.create = AsyncMock(
-            side_effect=[
-                _mock_anthropic_response(
-                    json.dumps(
-                        [
-                            {"claim_id": 1, "text": "claim 1"},
-                            {"claim_id": 2, "text": "claim 2"},
-                        ]
-                    )
-                ),
-                _mock_anthropic_response(
-                    json.dumps(
-                        {"verdict": "supported", "confidence": 0.9, "reasoning": "ok", "issues": []}
-                    )
-                ),
-                _mock_anthropic_response(
-                    json.dumps(
-                        {
-                            "verdict": "unsupported",
-                            "confidence": 0.2,
-                            "reasoning": "no evidence",
-                            "issues": ["no source"],
-                        }
-                    )
-                ),
-            ]
-        )
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider([
+            _make_llm_response(
+                json.dumps(
+                    [
+                        {"claim_id": 1, "text": "claim 1"},
+                        {"claim_id": 2, "text": "claim 2"},
+                    ]
+                )
+            ),
+            _make_llm_response(
+                json.dumps(
+                    {"verdict": "supported", "confidence": 0.9, "reasoning": "ok", "issues": []}
+                )
+            ),
+            _make_llm_response(
+                json.dumps(
+                    {
+                        "verdict": "unsupported",
+                        "confidence": 0.2,
+                        "reasoning": "no evidence",
+                        "issues": ["no source"],
+                    }
+                )
+            ),
+        ])
 
         _modified, verdicts = await refiner.verify("response text", sample_chunks, is_simple=False)
         assert len(verdicts) == 2
@@ -238,24 +231,20 @@ class TestFullVerify:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
 
-        mock_client.messages.create = AsyncMock(
-            side_effect=[
-                _mock_anthropic_response(json.dumps([{"claim_id": 1, "text": "false claim"}])),
-                _mock_anthropic_response(
-                    json.dumps(
-                        {
-                            "verdict": "unsupported",
-                            "confidence": 0.1,
-                            "reasoning": "no match",
-                            "issues": ["fabricated"],
-                        }
-                    )
-                ),
-            ]
-        )
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider([
+            _make_llm_response(json.dumps([{"claim_id": 1, "text": "false claim"}])),
+            _make_llm_response(
+                json.dumps(
+                    {
+                        "verdict": "unsupported",
+                        "confidence": 0.1,
+                        "reasoning": "no match",
+                        "issues": ["fabricated"],
+                    }
+                )
+            ),
+        ])
 
         modified, _verdicts = await refiner.verify("Some response.", sample_chunks, is_simple=False)
         assert "could not be verified" in modified
@@ -266,24 +255,20 @@ class TestFullVerify:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
 
-        mock_client.messages.create = AsyncMock(
-            side_effect=[
-                _mock_anthropic_response(json.dumps([{"claim_id": 1, "text": "partial claim"}])),
-                _mock_anthropic_response(
-                    json.dumps(
-                        {
-                            "verdict": "partially_supported",
-                            "confidence": 0.5,
-                            "reasoning": "half match",
-                            "issues": ["incomplete"],
-                        }
-                    )
-                ),
-            ]
-        )
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider([
+            _make_llm_response(json.dumps([{"claim_id": 1, "text": "partial claim"}])),
+            _make_llm_response(
+                json.dumps(
+                    {
+                        "verdict": "partially_supported",
+                        "confidence": 0.5,
+                        "reasoning": "half match",
+                        "issues": ["incomplete"],
+                    }
+                )
+            ),
+        ])
 
         modified, _verdicts = await refiner.verify("Some response.", sample_chunks, is_simple=False)
         assert "partially" in modified.lower()
@@ -294,10 +279,7 @@ class TestFullVerify:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
-
-        mock_client.messages.create = AsyncMock(return_value=_mock_anthropic_response("[]"))
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider(_make_llm_response("[]"))
 
         modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=False)
         assert modified == "response"
@@ -322,24 +304,20 @@ class TestReRetrieval:
             ]
         )
         refiner = GenGroundRefiner(settings, retrieval_engine=mock_engine)
-        mock_client = AsyncMock()
 
-        mock_client.messages.create = AsyncMock(
-            side_effect=[
-                _mock_anthropic_response(json.dumps([{"claim_id": 1, "text": "test claim"}])),
-                _mock_anthropic_response(
-                    json.dumps(
-                        {
-                            "verdict": "supported",
-                            "confidence": 0.95,
-                            "reasoning": "ok",
-                            "issues": [],
-                        }
-                    )
-                ),
-            ]
-        )
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider([
+            _make_llm_response(json.dumps([{"claim_id": 1, "text": "test claim"}])),
+            _make_llm_response(
+                json.dumps(
+                    {
+                        "verdict": "supported",
+                        "confidence": 0.95,
+                        "reasoning": "ok",
+                        "issues": [],
+                    }
+                )
+            ),
+        ])
 
         _modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=False)
         mock_engine.hybrid_search.assert_called_once()
@@ -353,19 +331,15 @@ class TestReRetrieval:
         mock_engine = AsyncMock()
         mock_engine.hybrid_search = AsyncMock(side_effect=Exception("search failed"))
         refiner = GenGroundRefiner(settings, retrieval_engine=mock_engine)
-        mock_client = AsyncMock()
 
-        mock_client.messages.create = AsyncMock(
-            side_effect=[
-                _mock_anthropic_response(json.dumps([{"claim_id": 1, "text": "test claim"}])),
-                _mock_anthropic_response(
-                    json.dumps(
-                        {"verdict": "supported", "confidence": 0.8, "reasoning": "ok", "issues": []}
-                    )
-                ),
-            ]
-        )
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider([
+            _make_llm_response(json.dumps([{"claim_id": 1, "text": "test claim"}])),
+            _make_llm_response(
+                json.dumps(
+                    {"verdict": "supported", "confidence": 0.8, "reasoning": "ok", "issues": []}
+                )
+            ),
+        ])
 
         _modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=False)
         # Falls back to initial chunks, doesn't crash
@@ -379,23 +353,28 @@ class TestLLMErrors:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
-        refiner._client = mock_client
+        provider = MagicMock()
+        provider.acomplete = AsyncMock(side_effect=Exception("API error"))
+        refiner._provider = provider
 
         with pytest.raises(GenGroundError, match="LLM call failed"):
             await refiner.verify("response", sample_chunks, is_simple=True)
 
-    async def test_anthropic_not_installed(
+    async def test_provider_not_available(
         self,
         settings: HallucinationSettings,
         sample_chunks: list[ExpandedContext],
     ) -> None:
+        from src.utils._exceptions import LLMNotAvailableError
+
         refiner = GenGroundRefiner(settings)
-        # Don't set _client — force _ensure_client to run
+        # Don't set _provider — force _ensure_provider to run
         with (
-            patch.dict("sys.modules", {"anthropic": None}),
-            pytest.raises(GenGroundNotAvailableError),
+            patch(
+                "src.hallucination._genground_refiner.get_llm_provider",
+                side_effect=LLMNotAvailableError("no provider"),
+            ),
+            pytest.raises(GenGroundNotAvailableError, match="LLM provider required"),
         ):
             await refiner.verify("response", sample_chunks, is_simple=True)
 
@@ -405,11 +384,9 @@ class TestLLMErrors:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(
-            return_value=_mock_anthropic_response("not valid json")
+        refiner._provider = _make_mock_provider(
+            _make_llm_response("not valid json")
         )
-        refiner._client = mock_client
 
         # Simple audit with invalid JSON — should handle gracefully
         _modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=True)
@@ -422,11 +399,7 @@ class TestLLMErrors:
         sample_chunks: list[ExpandedContext],
     ) -> None:
         refiner = GenGroundRefiner(settings)
-        mock_client = AsyncMock()
-        response = MagicMock()
-        response.content = []
-        mock_client.messages.create = AsyncMock(return_value=response)
-        refiner._client = mock_client
+        refiner._provider = _make_mock_provider(_make_llm_response(""))
 
         _modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=True)
         # Empty response → parsed as {} → default handling
@@ -441,25 +414,22 @@ class TestMaxClaims:
     ) -> None:
         settings_capped = HallucinationSettings(genground_max_claims=2)
         refiner = GenGroundRefiner(settings_capped)
-        mock_client = AsyncMock()
 
         # Extract 5 claims but only 2 should be verified
         claims = [{"claim_id": i, "text": f"claim {i}"} for i in range(5)]
-        responses = [
-            _mock_anthropic_response(json.dumps(claims)),
-            _mock_anthropic_response(
+        refiner._provider = _make_mock_provider([
+            _make_llm_response(json.dumps(claims)),
+            _make_llm_response(
                 json.dumps(
                     {"verdict": "supported", "confidence": 0.9, "reasoning": "ok", "issues": []}
                 )
             ),
-            _mock_anthropic_response(
+            _make_llm_response(
                 json.dumps(
                     {"verdict": "supported", "confidence": 0.9, "reasoning": "ok", "issues": []}
                 )
             ),
-        ]
-        mock_client.messages.create = AsyncMock(side_effect=responses)
-        refiner._client = mock_client
+        ])
 
         _modified, verdicts = await refiner.verify("response", sample_chunks, is_simple=False)
         assert len(verdicts) == 2  # Capped at max_claims

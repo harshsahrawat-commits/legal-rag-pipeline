@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import types
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -11,6 +10,20 @@ import pytest
 from src.query._hyde import _HYDE_PROMPT, SelectiveHyDE
 from src.query._models import QuerySettings
 from src.retrieval._models import QueryRoute
+from src.utils._llm_client import LLMResponse
+
+# --- Helpers ---
+
+
+def _make_mock_provider(response_text: str) -> MagicMock:
+    """Create a mock LLM provider that returns predefined text."""
+    provider = MagicMock()
+    response = LLMResponse(text=response_text, model="mock", provider="mock")
+    provider.complete.return_value = response
+    provider.is_available = True
+    provider.provider_name = "mock"
+    return provider
+
 
 # --- Fixtures ---
 
@@ -26,15 +39,6 @@ def disabled_settings() -> QuerySettings:
 
 
 @pytest.fixture
-def mock_anthropic_module() -> types.ModuleType:
-    """Build a fake anthropic module for testing."""
-    mod = types.ModuleType("anthropic")
-    mock_client_cls = MagicMock()
-    mod.Anthropic = mock_client_cls  # type: ignore[attr-defined]
-    return mod
-
-
-@pytest.fixture
 def mock_embedder() -> MagicMock:
     """Mock embedder that returns deterministic embeddings."""
     embedder = MagicMock()
@@ -46,10 +50,11 @@ def mock_embedder() -> MagicMock:
 
 
 class TestIsAvailable:
-    def test_available_when_enabled_and_anthropic_present(
-        self, settings: QuerySettings, mock_anthropic_module: types.ModuleType
+    def test_available_when_enabled_and_provider_available(
+        self, settings: QuerySettings
     ) -> None:
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        mock_provider = _make_mock_provider("text")
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             assert hyde.is_available is True
 
@@ -57,8 +62,10 @@ class TestIsAvailable:
         hyde = SelectiveHyDE(disabled_settings)
         assert hyde.is_available is False
 
-    def test_not_available_when_anthropic_missing(self, settings: QuerySettings) -> None:
-        with patch.dict("sys.modules", {"anthropic": None}):
+    def test_not_available_when_provider_unavailable(self, settings: QuerySettings) -> None:
+        mock_provider = MagicMock()
+        mock_provider.is_available = False
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             assert hyde.is_available is False
 
@@ -81,17 +88,12 @@ class TestMaybeGenerate:
     def test_generated_for_complex_route(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
         mock_embedder: MagicMock,
     ) -> None:
-        # Set up mock client response
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="Under Section 498A of the Indian Penal Code...")]
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-        mock_anthropic_module.Anthropic.return_value = mock_client  # type: ignore[attr-defined]
-
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        mock_provider = _make_mock_provider(
+            "Under Section 498A of the Indian Penal Code..."
+        )
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             result = hyde.maybe_generate(
                 "What is the interplay between Section 498A IPC and the DV Act?",
@@ -108,15 +110,9 @@ class TestMaybeGenerate:
     def test_generated_for_analytical_route(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
     ) -> None:
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="The evolution of Section 377...")]
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-        mock_anthropic_module.Anthropic.return_value = mock_client  # type: ignore[attr-defined]
-
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        mock_provider = _make_mock_provider("The evolution of Section 377...")
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             result = hyde.maybe_generate(
                 "Trace the evolution of Section 377 jurisprudence",
@@ -136,8 +132,10 @@ class TestMaybeGenerate:
         )
         assert result.generated is False
 
-    def test_skipped_when_anthropic_missing(self, settings: QuerySettings) -> None:
-        with patch.dict("sys.modules", {"anthropic": None}):
+    def test_skipped_when_provider_unavailable(self, settings: QuerySettings) -> None:
+        mock_provider = MagicMock()
+        mock_provider.is_available = False
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             result = hyde.maybe_generate(
                 "Compare eviction grounds",
@@ -148,13 +146,12 @@ class TestMaybeGenerate:
     def test_graceful_on_llm_error(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
     ) -> None:
-        mock_client = MagicMock()
-        mock_client.messages.create.side_effect = RuntimeError("API timeout")
-        mock_anthropic_module.Anthropic.return_value = mock_client  # type: ignore[attr-defined]
-
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        mock_provider = MagicMock()
+        mock_provider.is_available = True
+        mock_provider.provider_name = "mock"
+        mock_provider.complete.side_effect = RuntimeError("API timeout")
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             result = hyde.maybe_generate(
                 "Complex legal question",
@@ -167,15 +164,9 @@ class TestMaybeGenerate:
     def test_graceful_on_empty_response(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
     ) -> None:
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="   ")]
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-        mock_anthropic_module.Anthropic.return_value = mock_client  # type: ignore[attr-defined]
-
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        mock_provider = _make_mock_provider("   ")
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             result = hyde.maybe_generate(
                 "Complex legal question",
@@ -187,18 +178,12 @@ class TestMaybeGenerate:
     def test_embedder_failure_graceful(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
     ) -> None:
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="A hypothetical answer about law.")]
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-        mock_anthropic_module.Anthropic.return_value = mock_client  # type: ignore[attr-defined]
-
+        mock_provider = _make_mock_provider("A hypothetical answer about law.")
         bad_embedder = MagicMock()
         bad_embedder.embed_texts.side_effect = RuntimeError("CUDA OOM")
 
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
             result = hyde.maybe_generate(
                 "Complex legal question",
@@ -217,23 +202,6 @@ class TestMaybeGenerate:
         hyde = SelectiveHyDE(settings)
         result = hyde.maybe_generate("Compare laws", QueryRoute.COMPLEX)
         assert result.generated is False
-
-
-# --- _resolve_model_id ---
-
-
-class TestResolveModelId:
-    def test_claude_haiku_alias(self) -> None:
-        assert SelectiveHyDE._resolve_model_id("claude-haiku") == "claude-haiku-4-5-20251001"
-
-    def test_claude_sonnet_alias(self) -> None:
-        assert SelectiveHyDE._resolve_model_id("claude-sonnet") == "claude-sonnet-4-6-20250514"
-
-    def test_claude_opus_alias(self) -> None:
-        assert SelectiveHyDE._resolve_model_id("claude-opus") == "claude-opus-4-6-20250514"
-
-    def test_passthrough_for_unknown(self) -> None:
-        assert SelectiveHyDE._resolve_model_id("my-custom-model") == "my-custom-model"
 
 
 # --- _embed_hypothetical ---
@@ -262,43 +230,46 @@ class TestEmbedHypothetical:
         assert result is None
 
 
-# --- _ensure_client ---
+# --- _ensure_provider ---
 
 
-class TestEnsureClient:
-    def test_initializes_client(
+class TestEnsureProvider:
+    def test_initializes_provider(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
     ) -> None:
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        mock_provider = _make_mock_provider("text")
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
-            assert hyde._client is None
-            hyde._ensure_client()
-            assert hyde._client is not None
+            assert hyde._provider is None
+            hyde._ensure_provider()
+            assert hyde._provider is not None
 
-    def test_client_init_error_graceful(
+    def test_provider_init_error_graceful(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
     ) -> None:
-        mock_anthropic_module.Anthropic.side_effect = RuntimeError("no API key")  # type: ignore[attr-defined]
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        from src.utils._exceptions import LLMNotAvailableError
+
+        with patch(
+            "src.query._hyde.get_llm_provider",
+            side_effect=LLMNotAvailableError("no provider"),
+        ):
             hyde = SelectiveHyDE(settings)
-            hyde._ensure_client()
-            assert hyde._client is None
+            hyde._ensure_provider()
+            assert hyde._provider is None
 
     def test_no_double_init(
         self,
         settings: QuerySettings,
-        mock_anthropic_module: types.ModuleType,
     ) -> None:
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+        mock_provider = _make_mock_provider("text")
+        with patch("src.query._hyde.get_llm_provider", return_value=mock_provider):
             hyde = SelectiveHyDE(settings)
-            hyde._ensure_client()
-            first_client = hyde._client
-            hyde._ensure_client()
-            assert hyde._client is first_client
+            hyde._ensure_provider()
+            first = hyde._provider
+            hyde._ensure_provider()
+            assert hyde._provider is first
 
 
 # --- Prompt content ---

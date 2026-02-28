@@ -180,7 +180,10 @@ def sample_parsed_doc() -> ParsedDocument:
 
 
 def make_mock_async_anthropic(response_text: str) -> MagicMock:
-    """Create a mock AsyncAnthropic client that returns predefined text."""
+    """Create a mock AsyncAnthropic client that returns predefined text.
+
+    .. deprecated:: Use :func:`make_mock_provider` instead.
+    """
     client = MagicMock()
     content_block = MagicMock()
     content_block.text = response_text
@@ -188,3 +191,19 @@ def make_mock_async_anthropic(response_text: str) -> MagicMock:
     response.content = [content_block]
     client.messages.create = AsyncMock(return_value=response)
     return client
+
+
+def make_mock_provider(response_text: str) -> MagicMock:
+    """Create a mock LLM provider that returns predefined text.
+
+    Works for both sync (``complete``) and async (``acomplete``) calls.
+    """
+    from src.utils._llm_client import LLMResponse
+
+    provider = MagicMock()
+    response = LLMResponse(text=response_text, model="mock-model", provider="mock")
+    provider.complete.return_value = response
+    provider.acomplete = AsyncMock(return_value=response)
+    provider.is_available = True
+    provider.provider_name = "mock"
+    return provider

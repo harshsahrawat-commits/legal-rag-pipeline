@@ -145,28 +145,30 @@ class TestEndToEndWithMockGenGround:
         # Mock the GenGroundRefiner's LLM client
         pipeline = HallucinationPipeline(settings, query_builder=mock_qb)
 
-        # Patch the GenGroundRefiner to avoid anthropic import
+        # Patch the GenGroundRefiner to inject a mock LLM provider
         from src.hallucination._genground_refiner import GenGroundRefiner
+        from src.utils._llm_client import LLMResponse
 
-        mock_client = AsyncMock()
-        content_block = MagicMock()
-        content_block.text = json.dumps({"verdict": "supported", "issues": []})
-        mock_response = MagicMock()
-        mock_response.content = [content_block]
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
+        mock_provider = MagicMock()
+        mock_provider.acomplete = AsyncMock(
+            return_value=LLMResponse(
+                text=json.dumps({"verdict": "supported", "issues": []}),
+                model="mock",
+                provider="mock",
+            )
+        )
 
         original_init = GenGroundRefiner.__init__
 
         def patched_init(self_ref, *args, **kwargs):
             original_init(self_ref, *args, **kwargs)
-            self_ref._client = mock_client
+            self_ref._provider = mock_provider
 
-        with MagicMock() as _:
-            GenGroundRefiner.__init__ = patched_init
-            try:
-                result = await pipeline.verify(inp)
-            finally:
-                GenGroundRefiner.__init__ = original_init
+        GenGroundRefiner.__init__ = patched_init
+        try:
+            result = await pipeline.verify(inp)
+        finally:
+            GenGroundRefiner.__init__ = original_init
 
         assert result.summary.total_claims >= 1
         assert result.summary.supported_claims >= 1

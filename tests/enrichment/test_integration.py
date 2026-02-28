@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from src.chunking._models import LegalChunk
 from src.enrichment._models import EnrichmentConfig, EnrichmentSettings, QuIMDocument
 from src.enrichment.pipeline import EnrichmentPipeline
-from tests.enrichment.conftest import make_mock_async_anthropic
+from tests.enrichment.conftest import make_mock_provider
 
 if TYPE_CHECKING:
     from src.parsing._models import ParsedDocument
@@ -61,8 +61,8 @@ def _make_pipeline(tmp_path: Path) -> EnrichmentPipeline:
     )
     config = EnrichmentConfig(settings=settings)
     pipeline = EnrichmentPipeline(config=config)
-    pipeline._contextual._client = make_mock_async_anthropic(_CTX_RESPONSE)
-    pipeline._quim._client = make_mock_async_anthropic(_QUIM_RESPONSE)
+    pipeline._contextual._provider = make_mock_provider(_CTX_RESPONSE)
+    pipeline._quim._provider = make_mock_provider(_QUIM_RESPONSE)
     return pipeline
 
 

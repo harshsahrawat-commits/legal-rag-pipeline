@@ -94,19 +94,19 @@ class RagasEvaluator:
         """Initialize the LLM wrapper for RAGAS.
 
         Returns:
-            A ChatAnthropic instance configured with the model from settings.
+            A LangChain chat model (ChatAnthropic or ChatOpenAI) configured
+            via the LLM provider abstraction.
 
         Raises:
-            RagasNotAvailableError: If langchain-anthropic is not installed.
+            RagasNotAvailableError: If the required LangChain wrapper is not installed.
         """
-        try:
-            from langchain_anthropic import ChatAnthropic
-        except ImportError as exc:
-            raise RagasNotAvailableError(
-                "langchain-anthropic not installed. Install with: pip install langchain-anthropic"
-            ) from exc
+        from src.utils._exceptions import LLMNotAvailableError
+        from src.utils._llm_client import get_langchain_llm
 
-        return ChatAnthropic(model=self._settings.ragas_llm_model)
+        try:
+            return get_langchain_llm("ragas")
+        except LLMNotAvailableError as exc:
+            raise RagasNotAvailableError(str(exc)) from exc
 
     def _build_metrics(self, ragas_mod: types.ModuleType, llm: object) -> list[object]:
         """Build the 4 core RAGAS metrics.

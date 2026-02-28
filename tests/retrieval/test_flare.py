@@ -13,6 +13,7 @@ from src.retrieval._models import (
     RetrievalSettings,
     ScoredChunk,
 )
+from src.utils._llm_client import LLMResponse
 
 # --- Helpers ---
 
@@ -36,15 +37,14 @@ def _make_scored(chunk_id: str, text: str = "Re-retrieved text.") -> ScoredChunk
     )
 
 
-def _mock_anthropic_client(response_text: str) -> MagicMock:
-    """Create a mock AsyncAnthropic client that returns predefined text."""
-    client = MagicMock()
-    content_block = MagicMock()
-    content_block.text = response_text
-    response = MagicMock()
-    response.content = [content_block]
-    client.messages.create = AsyncMock(return_value=response)
-    return client
+def _make_mock_provider(response_text: str) -> MagicMock:
+    """Create a mock LLM provider that returns predefined text."""
+    provider = MagicMock()
+    response = LLMResponse(text=response_text, model="mock", provider="mock")
+    provider.acomplete = AsyncMock(return_value=response)
+    provider.is_available = True
+    provider.provider_name = "mock"
+    return provider
 
 
 @pytest.fixture()
@@ -68,9 +68,9 @@ def flare(settings: RetrievalSettings) -> FLAREActiveRetriever:
 
 
 class TestIsAvailable:
-    def test_available_when_enabled_and_anthropic_exists(self, flare: FLAREActiveRetriever) -> None:
-        fake_anthropic = MagicMock()
-        with patch.dict("sys.modules", {"anthropic": fake_anthropic}):
+    def test_available_when_enabled_and_provider_available(self, flare: FLAREActiveRetriever) -> None:
+        mock_provider = _make_mock_provider("text")
+        with patch("src.retrieval._flare.get_llm_provider", return_value=mock_provider):
             assert flare.is_available is True
 
     def test_not_available_when_disabled(self) -> None:
@@ -78,29 +78,36 @@ class TestIsAvailable:
         f = FLAREActiveRetriever(settings)
         assert f.is_available is False
 
-    def test_not_available_when_anthropic_missing(self, flare: FLAREActiveRetriever) -> None:
-        with patch.dict("sys.modules", {"anthropic": None}):
+    def test_not_available_when_provider_unavailable(self, flare: FLAREActiveRetriever) -> None:
+        mock_provider = MagicMock()
+        mock_provider.is_available = False
+        with patch("src.retrieval._flare.get_llm_provider", return_value=mock_provider):
             assert flare.is_available is False
 
 
 # ===================================================================
-# Client initialization
+# Provider initialization
 # ===================================================================
 
 
-class TestEnsureClient:
-    def test_raises_flare_error_when_no_anthropic(self, flare: FLAREActiveRetriever) -> None:
-        with (
-            patch.dict("sys.modules", {"anthropic": None}),
-            pytest.raises(FLAREError, match="anthropic is required"),
-        ):
-            flare._ensure_client()
+class TestEnsureProvider:
+    def test_raises_flare_error_when_no_provider(self, flare: FLAREActiveRetriever) -> None:
+        from src.utils._exceptions import LLMNotAvailableError
 
-    def test_creates_client_when_available(self, flare: FLAREActiveRetriever) -> None:
-        fake_anthropic = MagicMock()
-        with patch.dict("sys.modules", {"anthropic": fake_anthropic}):
-            flare._ensure_client()
-        assert flare._client is not None
+        with (
+            patch(
+                "src.retrieval._flare.get_llm_provider",
+                side_effect=LLMNotAvailableError("no provider"),
+            ),
+            pytest.raises(FLAREError, match="LLM provider required"),
+        ):
+            flare._ensure_provider()
+
+    def test_creates_provider_when_available(self, flare: FLAREActiveRetriever) -> None:
+        mock_provider = _make_mock_provider("text")
+        with patch("src.retrieval._flare.get_llm_provider", return_value=mock_provider):
+            flare._ensure_provider()
+        assert flare._provider is not None
 
 
 # ===================================================================
@@ -204,7 +211,7 @@ class TestActiveRetrieve:
         search_fn = AsyncMock(return_value=[])
 
         # Mock: all segments score above threshold
-        flare._client = _mock_anthropic_client("[0.9, 0.8]")
+        flare._provider = _make_mock_provider("[0.9, 0.8]")
 
         result, count = await flare.active_retrieve("query", chunks, search_fn)
 
@@ -222,23 +229,20 @@ class TestActiveRetrieve:
         # First LLM call: low confidence scores
         # Second LLM call: follow-up queries
         responses = [
-            "[0.2, 0.1]",  # confidence assessment
-            '["follow-up query 1", "follow-up query 2"]',  # follow-up queries
+            LLMResponse(text="[0.2, 0.1]", model="m", provider="p"),
+            LLMResponse(text='["follow-up query 1", "follow-up query 2"]', model="m", provider="p"),
         ]
         call_count = 0
 
-        async def multi_response(**kwargs):
+        async def multi_response(*args, **kwargs):
             nonlocal call_count
-            text = responses[min(call_count, len(responses) - 1)]
+            resp = responses[min(call_count, len(responses) - 1)]
             call_count += 1
-            content_block = MagicMock()
-            content_block.text = text
-            resp = MagicMock()
-            resp.content = [content_block]
             return resp
 
-        flare._client = MagicMock()
-        flare._client.messages.create = AsyncMock(side_effect=multi_response)
+        provider = MagicMock()
+        provider.acomplete = AsyncMock(side_effect=multi_response)
+        flare._provider = provider
 
         result, count = await flare.active_retrieve("query", chunks, search_fn)
 
@@ -256,21 +260,21 @@ class TestActiveRetrieve:
         same_chunk = _make_scored("c1", "Same chunk again.")
         search_fn = AsyncMock(return_value=[same_chunk])
 
-        responses = ["[0.1]", '["follow-up"]']
+        responses = [
+            LLMResponse(text="[0.1]", model="m", provider="p"),
+            LLMResponse(text='["follow-up"]', model="m", provider="p"),
+        ]
         call_count = 0
 
-        async def multi_response(**kwargs):
+        async def multi_response(*args, **kwargs):
             nonlocal call_count
-            text = responses[min(call_count, len(responses) - 1)]
+            resp = responses[min(call_count, len(responses) - 1)]
             call_count += 1
-            block = MagicMock()
-            block.text = text
-            resp = MagicMock()
-            resp.content = [block]
             return resp
 
-        flare._client = MagicMock()
-        flare._client.messages.create = AsyncMock(side_effect=multi_response)
+        provider = MagicMock()
+        provider.acomplete = AsyncMock(side_effect=multi_response)
+        flare._provider = provider
 
         result, count = await flare.active_retrieve("query", chunks, search_fn)
 
@@ -285,22 +289,21 @@ class TestActiveRetrieve:
         chunks = [_make_expanded("c1", " ".join(f"w{i}" for i in range(15)))]
         search_fn = AsyncMock(return_value=[_make_scored("cn")])
 
-        # Return 5 follow-up queries, but cap is 2
-        responses = ["[0.1]", '["q1","q2","q3","q4","q5"]']
+        responses = [
+            LLMResponse(text="[0.1]", model="m", provider="p"),
+            LLMResponse(text='["q1","q2","q3","q4","q5"]', model="m", provider="p"),
+        ]
         call_count = 0
 
-        async def multi_response(**kwargs):
+        async def multi_response(*args, **kwargs):
             nonlocal call_count
-            text = responses[min(call_count, len(responses) - 1)]
+            resp = responses[min(call_count, len(responses) - 1)]
             call_count += 1
-            block = MagicMock()
-            block.text = text
-            resp = MagicMock()
-            resp.content = [block]
             return resp
 
-        flare._client = MagicMock()
-        flare._client.messages.create = AsyncMock(side_effect=multi_response)
+        provider = MagicMock()
+        provider.acomplete = AsyncMock(side_effect=multi_response)
+        flare._provider = provider
 
         _, count = await flare.active_retrieve("query", chunks, search_fn)
 
@@ -313,8 +316,9 @@ class TestActiveRetrieve:
         chunks = [_make_expanded("c1", " ".join(f"w{i}" for i in range(15)))]
         search_fn = AsyncMock()
 
-        flare._client = MagicMock()
-        flare._client.messages.create = AsyncMock(side_effect=RuntimeError("API error"))
+        provider = MagicMock()
+        provider.acomplete = AsyncMock(side_effect=RuntimeError("API error"))
+        flare._provider = provider
 
         result, count = await flare.active_retrieve("query", chunks, search_fn)
 
@@ -325,7 +329,7 @@ class TestActiveRetrieve:
     @pytest.mark.asyncio
     async def test_empty_chunks_returns_immediately(self, flare: FLAREActiveRetriever) -> None:
         """No chunks → no segments → return immediately."""
-        flare._client = _mock_anthropic_client("[]")
+        flare._provider = _make_mock_provider("[]")
         search_fn = AsyncMock()
 
         result, count = await flare.active_retrieve("query", [], search_fn)

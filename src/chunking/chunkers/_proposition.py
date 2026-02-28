@@ -1,10 +1,10 @@
 """Strategy 4: Proposition-Based Chunker.
 
 Decomposes definitions sections into atomic, self-contained propositions
-using an LLM (Claude Haiku). Each definition becomes an independently
-retrievable chunk with full context.
+using an LLM. Each definition becomes an independently retrievable chunk
+with full context.
 
-Requires ``anthropic`` (optional dependency).
+Uses the LLM provider abstraction (``get_llm_provider``).
 """
 
 from __future__ import annotations
@@ -17,11 +17,14 @@ from src.chunking._metadata_builder import MetadataBuilder
 from src.chunking._models import ChunkStrategy, ChunkType, LegalChunk
 from src.chunking.chunkers._base import BaseChunker
 from src.parsing._models import SectionLevel
+from src.utils._exceptions import LLMCallError, LLMNotAvailableError
+from src.utils._llm_client import LLMMessage, get_llm_provider
 
 if TYPE_CHECKING:
     from src.chunking._models import ChunkingSettings
     from src.chunking._token_counter import TokenCounter
     from src.parsing._models import ParsedDocument, ParsedSection
+    from src.utils._llm_client import BaseLLMProvider
 
 _DEFINITION_PROMPT = """\
 Extract each individual definition from this legal text as a self-contained proposition.
@@ -47,7 +50,7 @@ class PropositionChunker(BaseChunker):
     def __init__(self, settings: ChunkingSettings, token_counter: TokenCounter) -> None:
         super().__init__(settings, token_counter)
         self._mb = MetadataBuilder()
-        self._client = None
+        self._provider: BaseLLMProvider | None = None
 
     @property
     def strategy(self) -> ChunkStrategy:
@@ -58,7 +61,7 @@ class PropositionChunker(BaseChunker):
         return _has_definitions(doc.sections)
 
     def chunk(self, doc: ParsedDocument) -> list[LegalChunk]:
-        self._ensure_client()
+        self._ensure_provider()
 
         source = self._mb.build_source_info(doc)
         ingestion = self._mb.build_ingestion_metadata(doc, ChunkStrategy.PROPOSITION)
@@ -103,16 +106,14 @@ class PropositionChunker(BaseChunker):
 
         return chunks
 
-    def _ensure_client(self) -> None:
-        """Lazy-load the Anthropic client."""
-        if self._client is not None:
+    def _ensure_provider(self) -> None:
+        """Lazy-load the LLM provider."""
+        if self._provider is not None:
             return
         try:
-            import anthropic
-
-            self._client = anthropic.Anthropic()
-        except ImportError:
-            msg = "PropositionChunker requires anthropic. Install with: pip install anthropic"
+            self._provider = get_llm_provider("proposition")
+        except LLMNotAvailableError as exc:
+            msg = f"PropositionChunker requires an LLM provider: {exc}"
             raise ChunkerNotAvailableError(msg) from None
 
     def _decompose(self, act_name: str, section_ref: str, text: str) -> list[str]:
@@ -123,14 +124,15 @@ class PropositionChunker(BaseChunker):
             text=text,
         )
 
-        response = self._client.messages.create(
-            model=self._settings.proposition_model,
-            max_tokens=self._settings.proposition_max_tokens_response,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        try:
+            response = self._provider.complete(
+                [LLMMessage(role="user", content=prompt)],
+                max_tokens=self._settings.proposition_max_tokens_response,
+            )
+        except LLMCallError:
+            raise
 
-        result_text = response.content[0].text
-        return [line.strip() for line in result_text.strip().split("\n") if line.strip()]
+        return [line.strip() for line in response.text.strip().split("\n") if line.strip()]
 
 
 def _has_definitions(sections: list[ParsedSection]) -> bool:

@@ -8,7 +8,8 @@ import pytest
 from src.enrichment._exceptions import EnricherNotAvailableError, LLMRateLimitError
 from src.enrichment._models import EnrichmentSettings
 from src.enrichment.enrichers._quim import QuIMRagEnricher, _parse_questions
-from tests.enrichment.conftest import make_mock_async_anthropic
+from src.utils._llm_client import LLMResponse
+from tests.enrichment.conftest import make_mock_provider
 
 if TYPE_CHECKING:
     from src.chunking._models import LegalChunk
@@ -28,9 +29,9 @@ class TestStageNameAndInit:
         enricher = QuIMRagEnricher(enrichment_settings)
         assert enricher.stage_name == "quim_rag"
 
-    def test_client_starts_none(self, enrichment_settings: EnrichmentSettings):
+    def test_provider_starts_none(self, enrichment_settings: EnrichmentSettings):
         enricher = QuIMRagEnricher(enrichment_settings)
-        assert enricher._client is None
+        assert enricher._provider is None
 
     def test_last_quim_doc_starts_none(self, enrichment_settings: EnrichmentSettings):
         enricher = QuIMRagEnricher(enrichment_settings)
@@ -45,7 +46,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         quim_doc = enricher.get_quim_document()
@@ -59,7 +60,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         for chunk in sample_statute_chunks:
@@ -72,7 +73,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         quim_doc = enricher.get_quim_document()
@@ -88,7 +89,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         quim_doc = enricher.get_quim_document()
@@ -102,7 +103,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         quim_doc = enricher.get_quim_document()
@@ -117,7 +118,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         quim_doc = enricher.get_quim_document()
@@ -130,7 +131,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         quim_doc = enricher.get_quim_document()
@@ -147,7 +148,7 @@ class TestGenerateQuestions:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
+        enricher._provider = make_mock_provider(_SAMPLE_QUESTIONS)
         result = await enricher.enrich_document([], sample_parsed_doc)
         assert result == []
         assert enricher.get_quim_document() is None
@@ -161,13 +162,13 @@ class TestPromptContent:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
-        enricher._client = client
+        provider = make_mock_provider(_SAMPLE_QUESTIONS)
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
+        call_kwargs = provider.acomplete.call_args.kwargs
         system = call_kwargs["system"]
-        assert system[0]["cache_control"] == {"type": "ephemeral"}
+        assert system[0].cache_control == {"type": "ephemeral"}
 
     async def test_act_name_in_user_message_for_statute(
         self,
@@ -176,12 +177,12 @@ class TestPromptContent:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
-        enricher._client = client
+        provider = make_mock_provider(_SAMPLE_QUESTIONS)
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks[:1], sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
-        user_content = call_kwargs["messages"][0]["content"]
+        call_args = provider.acomplete.call_args
+        user_content = call_args.args[0][0].content
         assert "Indian Contract Act" in user_content
 
     async def test_case_citation_in_user_message_for_judgment(
@@ -191,27 +192,27 @@ class TestPromptContent:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
-        enricher._client = client
+        provider = make_mock_provider(_SAMPLE_QUESTIONS)
+        enricher._provider = provider
         await enricher.enrich_document(sample_judgment_chunks[:1], sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
-        user_content = call_kwargs["messages"][0]["content"]
+        call_args = provider.acomplete.call_args
+        user_content = call_args.args[0][0].content
         assert "AIR 2024 SC 1500" in user_content
 
-    async def test_calls_correct_model(
+    async def test_max_tokens_passed(
         self,
         sample_statute_chunks: list[LegalChunk],
         sample_parsed_doc: ParsedDocument,
     ):
-        settings = EnrichmentSettings(model="custom-model", concurrency=2)
+        settings = EnrichmentSettings(max_tokens_response=512, concurrency=2)
         enricher = QuIMRagEnricher(settings)
-        client = make_mock_async_anthropic(_SAMPLE_QUESTIONS)
-        enricher._client = client
+        provider = make_mock_provider(_SAMPLE_QUESTIONS)
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks[:1], sample_parsed_doc)
 
-        call_kwargs = client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "custom-model"
+        call_kwargs = provider.acomplete.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 512
 
 
 class TestErrorIsolation:
@@ -223,21 +224,18 @@ class TestErrorIsolation:
     ):
         """If one chunk fails, others still get questions."""
         enricher = QuIMRagEnricher(enrichment_settings)
-        client = MagicMock()
+        provider = MagicMock()
 
-        content_ok = MagicMock()
-        content_ok.text = _SAMPLE_QUESTIONS
-        response_ok = MagicMock()
-        response_ok.content = [content_ok]
+        response_ok = LLMResponse(text=_SAMPLE_QUESTIONS, model="m", provider="p")
 
-        client.messages.create = AsyncMock(
+        provider.acomplete = AsyncMock(
             side_effect=[
                 RuntimeError("LLM error"),
                 response_ok,
                 response_ok,
             ]
         )
-        enricher._client = client
+        enricher._provider = provider
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         # First chunk should have 0 questions
@@ -256,7 +254,7 @@ class TestErrorIsolation:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        enricher._client = make_mock_async_anthropic("")
+        enricher._provider = make_mock_provider("")
         await enricher.enrich_document(sample_statute_chunks, sample_parsed_doc)
 
         for chunk in sample_statute_chunks:
@@ -269,24 +267,29 @@ class TestErrorIsolation:
         sample_parsed_doc: ParsedDocument,
     ):
         enricher = QuIMRagEnricher(enrichment_settings)
-        client = MagicMock()
+        provider = MagicMock()
         rate_err = type("RateLimitError", (Exception,), {})("rate limited")
-        client.messages.create = AsyncMock(side_effect=rate_err)
-        enricher._client = client
+        provider.acomplete = AsyncMock(side_effect=rate_err)
+        enricher._provider = provider
 
         with pytest.raises(LLMRateLimitError, match="rate limit"):
             await enricher.enrich_document(sample_statute_chunks[:1], sample_parsed_doc)
 
 
 class TestMissingDependency:
-    def test_raises_when_no_anthropic(self, enrichment_settings: EnrichmentSettings):
+    def test_raises_when_provider_unavailable(self, enrichment_settings: EnrichmentSettings):
+        from src.utils._exceptions import LLMNotAvailableError
+
         enricher = QuIMRagEnricher(enrichment_settings)
         with (
-            patch.dict("sys.modules", {"anthropic": None}),
-            pytest.raises(EnricherNotAvailableError, match="anthropic"),
+            patch(
+                "src.enrichment.enrichers._quim.get_llm_provider",
+                side_effect=LLMNotAvailableError("no provider"),
+            ),
+            pytest.raises(EnricherNotAvailableError, match="LLM provider"),
         ):
-            enricher._client = None
-            enricher._ensure_client()
+            enricher._provider = None
+            enricher._ensure_provider()
 
 
 class TestParseQuestions:

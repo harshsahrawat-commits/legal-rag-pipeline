@@ -10,11 +10,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from src.query._models import HyDEResult
+from src.utils._exceptions import LLMCallError, LLMNotAvailableError
+from src.utils._llm_client import LLMMessage, get_llm_provider
 from src.utils._logging import get_logger
 
 if TYPE_CHECKING:
     from src.query._models import QuerySettings
     from src.retrieval._models import QueryRoute
+    from src.utils._llm_client import BaseLLMProvider
 
 _log = get_logger(__name__)
 
@@ -39,33 +42,30 @@ class SelectiveHyDE:
 
     def __init__(self, settings: QuerySettings) -> None:
         self._settings = settings
-        self._client: Any = None
+        self._provider: BaseLLMProvider | None = None
 
     @property
     def is_available(self) -> bool:
-        """Check whether HyDE can be used (enabled + anthropic importable)."""
+        """Check whether HyDE can be used (enabled + LLM provider available)."""
         if not self._settings.hyde_enabled:
             return False
         try:
-            import anthropic  # noqa: F401
-
-            return True
-        except ImportError:
+            provider = get_llm_provider("hyde")
+            return provider.is_available
+        except LLMNotAvailableError:
             return False
 
-    def _ensure_client(self) -> None:
-        """Lazy-initialize the Anthropic client."""
-        if self._client is not None:
+    def _ensure_provider(self) -> None:
+        """Lazy-initialize the LLM provider."""
+        if self._provider is not None:
             return
         try:
-            import anthropic
-
-            self._client = anthropic.Anthropic()
-            _log.info("hyde_client_initialized")
-        except ImportError:
-            _log.warning("anthropic_not_available")
+            self._provider = get_llm_provider("hyde")
+            _log.info("hyde_provider_initialized", provider=self._provider.provider_name)
+        except LLMNotAvailableError:
+            _log.warning("llm_provider_not_available")
         except Exception as exc:
-            _log.warning("hyde_client_init_failed", error=str(exc))
+            _log.warning("hyde_provider_init_failed", error=str(exc))
 
     def maybe_generate(
         self,
@@ -109,22 +109,19 @@ class SelectiveHyDE:
 
     def _generate_hypothetical(self, query_text: str) -> str | None:
         """Call LLM to generate a hypothetical answer."""
-        self._ensure_client()
-        if self._client is None:
-            _log.warning("hyde_no_client")
+        self._ensure_provider()
+        if self._provider is None:
+            _log.warning("hyde_no_provider")
             return None
 
         prompt = _HYDE_PROMPT.format(query=query_text)
 
         try:
-            # Map hyde_model setting to actual model ID
-            model = self._resolve_model_id(self._settings.hyde_model)
-            response = self._client.messages.create(
-                model=model,
+            response = self._provider.complete(
+                [LLMMessage(role="user", content=prompt)],
                 max_tokens=self._settings.hyde_max_tokens,
-                messages=[{"role": "user", "content": prompt}],
             )
-            text = response.content[0].text.strip()
+            text = response.text.strip()
             if text:
                 _log.info(
                     "hyde_generated",
@@ -134,19 +131,12 @@ class SelectiveHyDE:
                 return text
             _log.warning("hyde_empty_response")
             return None
+        except LLMCallError as exc:
+            _log.warning("hyde_generation_failed", error=str(exc))
+            return None
         except Exception as exc:
             _log.warning("hyde_generation_failed", error=str(exc))
             return None
-
-    @staticmethod
-    def _resolve_model_id(model_name: str) -> str:
-        """Resolve shorthand model names to full Anthropic model IDs."""
-        aliases: dict[str, str] = {
-            "claude-haiku": "claude-haiku-4-5-20251001",
-            "claude-sonnet": "claude-sonnet-4-6-20250514",
-            "claude-opus": "claude-opus-4-6-20250514",
-        }
-        return aliases.get(model_name, model_name)
 
     @staticmethod
     def _embed_hypothetical(
